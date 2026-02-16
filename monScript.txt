@@ -1,0 +1,1165 @@
+(() => {
+  const VERSION = 18;
+
+  if (window.__ctrlEdit && window.__ctrlEdit.version === VERSION) {
+    return { ok: true, msg: 'already installed', version: VERSION, enabled: window.__ctrlEdit.enabled };
+  }
+
+  try { if (window.__ctrlEdit && window.__ctrlEdit.uninstall) window.__ctrlEdit.uninstall(); } catch(e){}
+
+  const state = {
+    version: VERSION,
+    enabled: true,
+    ctrlDown: false,
+    hiBox: null,
+    editor: null,
+
+    editNode: null,
+    editOriginal: null,
+    edited: new Map(),
+
+    themeOn: false,
+    themeBackup: null,
+
+    sidebarWasOpen: false,
+
+    flameContainer: null,
+    flames: [],
+    mouseX: 0,
+    mouseY: 0,
+    flameAnimFrame: null,
+  };
+
+  const toast = (txt) => {
+    try {
+      const t = document.createElement('div');
+      t.textContent = txt;
+      t.style.position = 'fixed';
+      t.style.right = '14px';
+      t.style.bottom = '14px';
+      t.style.zIndex = '2147483647';
+      t.style.padding = '10px 12px';
+      t.style.borderRadius = '12px';
+      t.style.background = 'rgba(28,28,30,0.92)';
+      t.style.color = '#EBEBF5';
+      t.style.fontSize = '13px';
+      t.style.boxShadow = '0 10px 30px rgba(0,0,0,0.35)';
+      document.documentElement.appendChild(t);
+      setTimeout(() => t.remove(), 900);
+    } catch(e){}
+  };
+"
+  const createFlameContainer = () => {
+    if (state.flameContainer) return;
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.top = '0';
+    container.style.left = '0';
+    container.style.width = '100%';
+    container.style.height = '100%';
+    container.style.zIndex = '2147483646';
+    container.style.pointerEvents = 'none';
+    container.style.overflow = 'hidden';
+    document.documentElement.appendChild(container);
+    state.flameContainer = container;
+  };
+
+  const createFlameParticle = (x, y) => {
+    const flame = document.createElement('div');
+    const size = 4 + Math.random() * 6;
+    const hue = 240 - Math.random() * 40;
+    const brightness = 20 + Math.random() * 25;
+    const lifetime = 0.2 + Math.random() * 0.4;
+
+    flame.style.position = 'absolute';
+    flame.style.left = `${x}px`;
+    flame.style.top = `${y}px`;
+    flame.style.width = `${size}px`;
+    flame.style.height = `${size}px`;
+    flame.style.borderRadius = '50%';
+    flame.style.background = `radial-gradient(circle, hsl(${hue}, 100%, ${brightness}%), transparent)`;
+    flame.style.boxShadow = `0 0 ${size}px hsl(${hue}, 100%, ${brightness}%)`;
+    flame.style.opacity = '1';
+    flame.style.transform = 'translate(-50%, -50%) scale(1)';
+    flame.style.pointerEvents = 'none';
+
+    const particle = {
+      element: flame,
+      x: x,
+      y: y,
+      vx: (Math.random() - 0.5) * 2,
+      vy: -2 - Math.random() * 3,
+      life: 1.0,
+      maxLife: lifetime,
+      size: size,
+      hue: hue,
+    };
+
+    state.flameContainer.appendChild(flame);
+    state.flames.push(particle);
+  };
+
+  const updateFlames = () => {
+    const dt = 0.016;
+
+    for (let i = state.flames.length - 1; i >= 0; i--) {
+      const p = state.flames[i];
+      p.life -= dt / p.maxLife;
+      if (p.life <= 0) {
+        p.element.remove();
+        state.flames.splice(i, 1);
+        continue;
+      }
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy -= 0.15;
+
+      const scale = 0.5 + p.life * 0.5;
+      const opacity = Math.min(1, p.life * 2);
+
+      p.element.style.left = `${p.x}px`;
+      p.element.style.top = `${p.y}px`;
+      p.element.style.opacity = `${opacity}`;
+      p.element.style.transform = `translate(-50%, -50%) scale(${scale})`;
+    }
+
+    if (state.ctrlDown && state.enabled) {
+      const spawnCount = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < spawnCount; i++) {
+        const offsetX = (Math.random() - 0.5) * 8;
+        const offsetY = (Math.random() - 0.5) * 8;
+        createFlameParticle(state.mouseX + offsetX, state.mouseY + offsetY);
+      }
+    }
+
+    if (state.ctrlDown && state.enabled) {
+      state.flameAnimFrame = requestAnimationFrame(updateFlames);
+    }
+  };
+
+  const startFlameAnimation = () => {
+    return;
+    if (state.flameAnimFrame) return;
+    createFlameContainer();
+    updateFlames();
+  };
+
+  const stopFlameAnimation = () => {
+    if (state.flameAnimFrame) {
+      cancelAnimationFrame(state.flameAnimFrame);
+      state.flameAnimFrame = null;
+    }
+    for (const p of state.flames) { p.element.remove(); }
+    state.flames = [];
+  };
+
+  const removeFlameContainer = () => {
+    stopFlameAnimation();
+    if (state.flameContainer) {
+      state.flameContainer.remove();
+      state.flameContainer = null;
+    }
+  };
+"
+  const ensureHiBox = () => {
+    if (state.hiBox) return;
+    const hi = document.createElement('div');
+    hi.style.position = 'fixed';
+    hi.style.zIndex = '2147483647';
+    hi.style.pointerEvents = 'none';
+    hi.style.border = '2px solid #0A84FF';
+    hi.style.borderRadius = '6px';
+    hi.style.boxShadow = '0 0 0 2px rgba(10,132,255,0.25)';
+    hi.style.display = 'none';
+    document.documentElement.appendChild(hi);
+    state.hiBox = hi;
+  };
+
+  const hideHiBox = () => { if (state.hiBox) state.hiBox.style.display = 'none'; };
+
+  const placeHiBox = (el) => {
+    if (!state.hiBox) return;
+    if (!state.enabled) { state.hiBox.style.display = 'none'; return; }
+    if (!el || el === document.documentElement || el === document.body) {
+      state.hiBox.style.display = 'none';
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) { state.hiBox.style.display = 'none'; return; }
+    state.hiBox.style.left = `${Math.max(0, r.left)}px`;
+    state.hiBox.style.top = `${Math.max(0, r.top)}px`;
+    state.hiBox.style.width = `${Math.max(0, r.width)}px`;
+    state.hiBox.style.height = `${Math.max(0, r.height)}px`;
+    state.hiBox.style.display = 'block';
+  };
+
+  const removeEditor = () => {
+    if (state.editor) {
+      if (state.editor.__hint) state.editor.__hint.remove();
+      state.editor.remove();
+      state.editor = null;
+    }
+  };
+
+  function getTextNodeFromPoint(x, y) {
+    let range = null;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(x, y);
+    } else if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(x, y);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    if (!range) return null;
+
+    let node = range.startContainer;
+    if (node && node.nodeType === Node.TEXT_NODE) {
+      if (((node.nodeValue || '')).trim().length === 0) return null;
+      return node;
+    }
+
+    if (node && node.nodeType === Node.ELEMENT_NODE) {
+      const el = node;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode(n) {
+          return ((n.nodeValue || '').trim().length > 0) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        }
+      });
+      return walker.nextNode();
+    }
+    return null;
+  }
+
+  const cancelEdit = () => {
+    try {
+      if (state.editNode && state.editOriginal !== null) {
+        state.editNode.nodeValue = state.editOriginal;
+      }
+    } catch(e){}
+    removeEditor();
+    state.editNode = null;
+    state.editOriginal = null;
+  };
+
+  const commitEdit = () => {
+    if (!state.editor || !state.editNode) return;
+    try {
+      const newValue = state.editor.value.trim();
+      state.editNode.nodeValue = newValue;
+
+      const parentItem = state.editNode.parentElement?.closest('.b-fans__item__list__item');
+      if (parentItem) {
+        const label = parentItem.querySelector('.b-fans__item__list__label');
+        if (label && label.textContent.includes('Subscribers count')) {
+          const count = parseInt(newValue) || 0;
+
+          let countElement = parentItem.querySelector('a.g-btn-link.m-link-color');
+          if (!countElement) countElement = parentItem.querySelector('span.g-gray-text');
+          if (!countElement) countElement = parentItem.querySelector('span:not(.b-fans__item__list__label)');
+
+          if (countElement) {
+            if (count === 0) {
+              const graySpan = document.createElement('span');
+              graySpan.className = 'g-gray-text';
+              graySpan.textContent = 'No subscribers yet';
+              countElement.replaceWith(graySpan);
+            } else {
+              if (countElement.classList.contains('g-gray-text')) {
+                const linkBlock = countElement.closest('.b-offer-join.m-trial-link-block');
+                let trialId = '';
+                if (linkBlock) {
+                  const idMatch = linkBlock.querySelector('[href*="/"]');
+                  if (idMatch) {
+                    const hrefMatch = idMatch.getAttribute('href').match(/\\/(\\d+)\\//);
+                    if (hrefMatch) trialId = hrefMatch[1];
+                  }
+                }
+                const link = document.createElement('a');
+                link.href = trialId ? `/${trialId}/claimers` : '#';
+                link.tabIndex = 0;
+                link.className = 'g-btn-link m-link-color';
+                link.textContent = count.toString();
+                countElement.replaceWith(link);
+              } else {
+                countElement.textContent = count.toString();
+              }
+            }
+          }
+
+          removeEditor();
+          state.editNode = null;
+          state.editOriginal = null;
+          return;
+        }
+      }
+
+      const parentSpan = state.editNode.parentElement;
+      if (parentSpan && parentSpan.tagName && parentSpan.tagName.toLowerCase() === 'span') {
+        const count = parseInt(newValue) || 0;
+        const hasBlueClass = parentSpan.classList.contains('g-page__link') && parentSpan.classList.contains('g-blue');
+        const hasNoClasses = parentSpan.className === '';
+        if (count === 0 && hasBlueClass) {
+          parentSpan.className = '';
+        } else if (count > 0 && (hasNoClasses || !hasBlueClass)) {
+          parentSpan.className = 'g-page__link g-blue';
+        }
+      }
+    } catch(e) {
+      console.error('Commit edit error:', e);
+    }
+    removeEditor();
+    state.editNode = null;
+    state.editOriginal = null;
+  };
+
+  const resetAllChanges = () => {
+    try {
+      for (const [tn, original] of state.edited.entries()) {
+        if (tn && tn.nodeType === Node.TEXT_NODE) tn.nodeValue = original;
+      }
+    } catch(e){}
+    state.edited.clear();
+    cancelEdit();
+    hideHiBox();
+    toast('Changes reverted');
+  };
+
+  const makeEditor = (x, y, initial) => {
+    removeEditor();
+    const ta = document.createElement('textarea');
+    ta.value = initial ?? '';
+    ta.spellcheck = false;
+
+    ta.style.position = 'fixed';
+    ta.style.left = `${Math.min(window.innerWidth - 360, Math.max(8, x))}px`;
+    ta.style.top = `${Math.min(window.innerHeight - 140, Math.max(8, y))}px`;
+    ta.style.width = '360px';
+    ta.style.height = '120px';
+    ta.style.zIndex = '2147483647';
+    ta.style.padding = '10px 12px';
+    ta.style.borderRadius = '12px';
+    ta.style.border = '1px solid rgba(255,255,255,0.18)';
+    ta.style.background = 'rgba(28,28,30,0.96)';
+    ta.style.color = '#EBEBF5';
+    ta.style.fontSize = '14px';
+    ta.style.outline = 'none';
+    ta.style.boxShadow = '0 10px 30px rgba(0,0,0,0.45)';
+
+    const hint = document.createElement('div');
+    hint.textContent = 'Enter = Save • Esc = Dismiss • F12 = toggle • Ctrl+Alt+Backspace = reset';
+    hint.style.position = 'fixed';
+    hint.style.left = ta.style.left;
+    hint.style.top = `calc(${ta.style.top} + 124px)`;
+    hint.style.zIndex = '2147483647';
+    hint.style.fontSize = '12px';
+    hint.style.color = 'rgba(235,235,245,0.70)';
+    hint.style.pointerEvents = 'none';
+
+    ta.__hint = hint;
+    document.documentElement.appendChild(ta);
+    document.documentElement.appendChild(hint);
+
+    ta.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
+      else if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); commitEdit(); }
+    }, true);
+
+    ta.focus();
+    ta.select();
+    state.editor = ta;
+  };
+
+  const pickEditableTarget = (el) => {
+    if (!el) return null;
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || el.isContentEditable) return null;
+    let cur = el;
+    for (let i = 0; i < 7 && cur; i++) {
+      const txt = (cur.textContent || '').trim();
+      if (txt.length > 0) return cur;
+      cur = cur.parentElement;
+    }
+    return null;
+  };
+
+  const toggleEnabled = () => {
+    state.enabled = !state.enabled;
+    window.__ctrlEdit.enabled = state.enabled;
+    if (!state.enabled) {
+      hideHiBox();
+      cancelEdit();
+      stopFlameAnimation();
+      toast('Editor: OFF');
+    } else {
+      toast('Editor: ON');
+    }
+  };
+"
+  const onKeyDown = (e) => {
+    if (e.key === 'F12') {
+      toggleEnabled();
+      try { e.preventDefault(); e.stopPropagation(); } catch(_) {}
+      return;
+    }
+
+    if (e.ctrlKey && e.altKey && e.key === 'Backspace') {
+      if (!state.enabled) return;
+      e.preventDefault();
+      e.stopPropagation();
+      resetAllChanges();
+      return;
+    }
+
+    if (!state.enabled) return;
+
+    if (e.key === 'Control') {
+      state.ctrlDown = true;
+      ensureHiBox();
+      startFlameAnimation();
+    }
+  };
+
+  const onKeyUp = (e) => {
+    if (e.key === 'Control') {
+      state.ctrlDown = false;
+      hideHiBox();
+      stopFlameAnimation();
+    }
+  };
+
+  const onMouseMove = (e) => {
+    state.mouseX = e.clientX;
+    state.mouseY = e.clientY;
+
+    if (!state.enabled) return;
+    if (!state.ctrlDown || state.editor) return;
+    ensureHiBox();
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const t = pickEditableTarget(el) || el;
+    placeHiBox(t);
+  };
+
+  const onMouseDown = (e) => {
+    if (!state.enabled) return;
+    if (!state.ctrlDown || state.editor) return;
+
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const targetEl = pickEditableTarget(el);
+    if (!targetEl) return;
+
+    const tn = getTextNodeFromPoint(e.clientX, e.clientY);
+    if (!tn) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    state.editNode = tn;
+    state.editOriginal = tn.nodeValue ?? '';
+
+    if (!state.edited.has(tn)) {
+      state.edited.set(tn, state.editOriginal);
+    }
+
+    makeEditor(e.clientX + 12, e.clientY + 12, state.editOriginal);
+  };
+
+  window.addEventListener('keydown', onKeyDown, true);
+  window.addEventListener('keyup', onKeyUp, true);
+  window.addEventListener('mousemove', onMouseMove, true);
+  window.addEventListener('mousedown', onMouseDown, true);
+
+  const uninstall = () => {
+    try { window.removeEventListener('keydown', onKeyDown, true); } catch(e){}
+    try { window.removeEventListener('keyup', onKeyUp, true); } catch(e){}
+    try { window.removeEventListener('mousemove', onMouseMove, true); } catch(e){}
+    try { window.removeEventListener('mousedown', onMouseDown, true); } catch(e){}
+    cancelEdit();
+    stopFlameAnimation();
+    removeFlameContainer();
+    if (state.hiBox) { state.hiBox.remove(); state.hiBox = null; }
+    window.__ctrlEdit = null;
+    return { ok: true };
+  };
+
+  window.__ctrlEdit = { version: VERSION, enabled: state.enabled, uninstall, toggle: toggleEnabled };
+
+  const captureThemeBackupOnce = () => {
+    if (state.themeBackup) return;
+    const root = document.documentElement;
+    state.themeBackup = {
+      rootStyleAttr: root.getAttribute('style') || '',
+      hadDarkClass: root.classList.contains('dark'),
+    };
+  };
+
+  const restoreThemeBackup = () => {
+    const b = state.themeBackup;
+    if (!b) return;
+    const root = document.documentElement;
+    try { root.setAttribute('style', b.rootStyleAttr || ''); } catch(_) {}
+    try {
+      if (b.hadDarkClass) root.classList.add('dark');
+      else root.classList.remove('dark');
+    } catch(_) {}
+  };
+
+  const applyLocalTheme = () => {
+    try {
+      const root = document.documentElement;
+
+      const hasOmVars = (() => {
+        try {
+          const inline = root.getAttribute('style') || '';
+          if (inline.includes('--color-om-')) return true;
+          const cs = getComputedStyle(root);
+          const probe = cs.getPropertyValue('--color-om-neutral-900').trim();
+          const probe2 = cs.getPropertyValue('--color-om-brand-500').trim();
+          return !!(probe || probe2);
+        } catch (e) { return false; }
+      })();
+
+      if (!hasOmVars) return;
+
+      try { root.classList.add('dark'); } catch (_) {}
+
+      const vars = {
+        '--color-om-neutral-0':   '235 243 255',
+        '--color-om-neutral-50':  '214 228 248',
+        '--color-om-neutral-100': '190 206 232',
+        '--color-om-neutral-200': '160 180 214',
+        '--color-om-neutral-300': '125 148 186',
+        '--color-om-neutral-400': ' 96 120 160',
+        '--color-om-neutral-500': ' 72  92 128',
+        '--color-om-neutral-600': ' 54  72 104',
+        '--color-om-neutral-700': ' 40  54  82',
+        '--color-om-neutral-750': ' 33  45  70',
+        '--color-om-neutral-800': ' 26  36  56',
+        '--color-om-neutral-850': ' 20  28  44',
+        '--color-om-neutral-900': ' 14  20  33',
+        '--color-om-neutral-950': ' 10  14  24',
+        '--color-om-brand-400':   ' 56 124 255',
+        '--color-om-brand-500':   ' 30  98 235',
+        '--color-om-brand-600':   ' 12  72 190',
+      };
+
+      for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+    } catch (e) {}
+  };
+
+  const getLogoContainer = () => document.querySelector('.logo-container');
+
+  const isSidebarOpen = () => {
+    try {
+      const c = getLogoContainer();
+      if (!c) return false;
+      const style = getComputedStyle(c);
+      const width = parseFloat(style.width);
+      return width > 100;
+    } catch(_) {
+      return false;
+    }
+  };
+
+  const patchSidebarLogoToDemonCat = () => {
+    try {
+      if (location && location.protocol === 'https:') return;
+
+      const c = getLogoContainer();
+      if (!c) return;
+      if (c.dataset && c.dataset.omDemonPatched === '1') return;
+
+      const recolor = (from, to) => {
+        c.querySelectorAll(`path[fill="${from}"]`).forEach(p => { p.setAttribute('fill', to); });
+      };
+      recolor('#535146', '#B00020');
+      recolor('#CCB994', '#FF5A5F');
+      recolor('#13120F', '#2B0A0A');
+
+      const svg = c.querySelector('svg.smile');
+      if (!svg) return;
+
+      const NS = 'http://www.w3.org/2000/svg';
+
+      if (svg.querySelector('[data-om-demon-back="1"]') || svg.querySelector('[data-om-demon-front="1"]')) {
+        c.dataset.omDemonPatched = '1';
+        return;
+      }
+
+      svg.querySelectorAll(
+        [
+          '[data-om-back]',
+          '[data-om-demon]',
+          '[data-om-demon-back]',
+          '[data-om-demon-front]',
+          '[data-om-neon-style]',
+          '[data-om-neon-filter]',
+          '[data-om-eye-style]',
+          '[data-om-eye-anim]',
+          '[data-om-eye-wrap]',
+          'animateTransform[data-om-eye-anim]',
+          'animate[data-om-eye-anim]',
+          'style[data-om-eye-style]',
+        ].join(',')
+      ).forEach(n => n.remove());
+
+      let defs = svg.querySelector('defs');
+      if (!defs) { defs = document.createElementNS(NS, 'defs'); svg.appendChild(defs); }
+
+      const style = document.createElementNS(NS, 'style');
+      style.setAttribute('data-om-eye-style', '1');
+      style.textContent = `
+        @keyframes omOuterGlow10 {
+          0% { filter:
+            drop-shadow(0 0 1px rgba(255, 90, 95, 0.06))
+            drop-shadow(0 0 3px rgba(255, 90, 95, 0.05))
+            drop-shadow(0 0 8px rgba(255, 90, 95, 0.04)); }
+          18% { filter:
+            drop-shadow(0 0 4px rgba(255, 90, 95, 0.22))
+            drop-shadow(0 0 12px rgba(255, 90, 95, 0.16))
+            drop-shadow(0 0 24px rgba(255, 90, 95, 0.10)); }
+          35% { filter:
+            drop-shadow(0 0 2px rgba(255, 90, 95, 0.12))
+            drop-shadow(0 0 7px rgba(255, 90, 95, 0.10))
+            drop-shadow(0 0 14px rgba(255, 90, 95, 0.07)); }
+          100% { filter:
+            drop-shadow(0 0 1px rgba(255, 90, 95, 0.06))
+            drop-shadow(0 0 3px rgba(255, 90, 95, 0.05))
+            drop-shadow(0 0 8px rgba(255, 90, 95, 0.04)); }
+        }
+        .om-demon-glow { animation: omOuterGlow10 10s ease-in-out infinite; }
+      `;
+      defs.appendChild(style);
+      try { svg.classList.add('om-demon-glow'); } catch(_) {}
+
+      const hornFill  = '#FF3B30';
+      const tailBase  = '#C94A46';
+      const tailMid   = '#E36A66';
+      const spikeFill = '#FF6F6A';
+      const neonColor = '#FF5A5F';
+
+      const baseStroke = 2;
+      const tailWidth = +(baseStroke * 1.4).toFixed(2);
+
+      const neonFilterId = `omNeon_${Math.random().toString(16).slice(2)}`;
+      const filter = document.createElementNS(NS, 'filter');
+      filter.setAttribute('id', neonFilterId);
+      filter.setAttribute('x', '-30%');
+      filter.setAttribute('y', '-30%');
+      filter.setAttribute('width', '160%');
+      filter.setAttribute('height', '160%');
+      filter.setAttribute('data-om-neon-filter', '1');
+
+      const blur = document.createElementNS(NS, 'feGaussianBlur');
+      blur.setAttribute('in', 'SourceGraphic');
+      blur.setAttribute('stdDeviation', '2.6');
+      filter.appendChild(blur);
+      defs.appendChild(filter);
+
+      const gradId = `omTailGrad_${Math.random().toString(16).slice(2)}`;
+      const grad = document.createElementNS(NS, 'linearGradient');
+      grad.setAttribute('id', gradId);
+      grad.setAttribute('x1', '12');
+      grad.setAttribute('y1', '8');
+      grad.setAttribute('x2', '35');
+      grad.setAttribute('y2', '8');
+      grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+
+      const mkStop = (o, col) => {
+        const s = document.createElementNS(NS, 'stop');
+        s.setAttribute('offset', o);
+        s.setAttribute('stop-color', col);
+        return s;
+      };
+      grad.appendChild(mkStop('0%', tailBase));
+      grad.appendChild(mkStop('50%', tailMid));
+      grad.appendChild(mkStop('100%', tailBase));
+      defs.appendChild(grad);
+
+      const dTailBack  = 'M24.7,36c15.2,5.9,21.8-7,19.3-14.4';
+      const dTailFront = 'M44,21.7c-2.3-5.8-4.3-6.8-8.7-10.7c-3.6-3.2-3-6.6,0-7.1';
+
+      const back = document.createElementNS(NS, 'g');
+      back.setAttribute('data-om-demon-back', '1');
+
+      const neon = document.createElementNS(NS, 'g');
+      neon.setAttribute('class', 'om-neon');
+
+      const neonBack = document.createElementNS(NS, 'path');
+      neonBack.setAttribute('d', dTailBack);
+      neonBack.setAttribute('fill', 'none');
+      neonBack.setAttribute('stroke', neonColor);
+      neonBack.setAttribute('stroke-width', (tailWidth * 2.2).toFixed(2));
+      neonBack.setAttribute('stroke-linecap', 'round');
+      neonBack.setAttribute('stroke-linejoin', 'round');
+      neonBack.setAttribute('opacity', '0.35');
+      neonBack.setAttribute('filter', `url(#${neonFilterId})`);
+
+      const neonFrontBehind = document.createElementNS(NS, 'path');
+      neonFrontBehind.setAttribute('d', dTailFront);
+      neonFrontBehind.setAttribute('fill', 'none');
+      neonFrontBehind.setAttribute('stroke', neonColor);
+      neonFrontBehind.setAttribute('stroke-width', (tailWidth * 2.0).toFixed(2));
+      neonFrontBehind.setAttribute('stroke-linecap', 'round');
+      neonFrontBehind.setAttribute('stroke-linejoin', 'round');
+      neonFrontBehind.setAttribute('opacity', '0.28');
+      neonFrontBehind.setAttribute('filter', `url(#${neonFilterId})`);
+
+      neon.appendChild(neonBack);
+      neon.appendChild(neonFrontBehind);
+
+      const tailBack = document.createElementNS(NS, 'path');
+      tailBack.setAttribute('d', dTailBack);
+      tailBack.setAttribute('fill', 'none');
+      tailBack.setAttribute('stroke', tailBase);
+      tailBack.setAttribute('stroke-width', String(tailWidth));
+      tailBack.setAttribute('stroke-linecap', 'round');
+      tailBack.setAttribute('stroke-linejoin', 'round');
+
+      const hornL = document.createElementNS(NS, 'path');
+      hornL.setAttribute('d', 'M15.3,13.2l3.3-11.9l3.1,11.9H15.3z');
+      hornL.setAttribute('fill', hornFill);
+
+      const hornR = document.createElementNS(NS, 'path');
+      hornR.setAttribute('d', 'M25.3,13.2l3.1-11.9l3.3,11.9H25.3z');
+      hornR.setAttribute('fill', hornFill);
+
+      const spike = document.createElementNS(NS, 'polygon');
+      spike.setAttribute('points', '32.5,1.6 35.5,3.6 34.2,6.2 39.6,2.8');
+      spike.setAttribute('fill', spikeFill);
+      const spikeScale = 1.6;
+      const scx = 35.4, scy = 3.6;
+      spike.setAttribute('transform', `translate(${scx} ${scy}) scale(${spikeScale}) translate(${-scx} ${-scy})`);
+
+      back.appendChild(neon);
+      back.appendChild(tailBack);
+      back.appendChild(hornL);
+      back.appendChild(hornR);
+      back.appendChild(spike);
+
+      svg.insertBefore(back, svg.firstChild);
+
+      const front = document.createElementNS(NS, 'g');
+      front.setAttribute('data-om-demon-front', '1');
+
+      const tailFront = document.createElementNS(NS, 'path');
+      tailFront.setAttribute('d', dTailFront);
+      tailFront.setAttribute('fill', 'none');
+      tailFront.setAttribute('stroke', `url(#${gradId})`);
+      tailFront.setAttribute('stroke-width', String(tailWidth));
+      tailFront.setAttribute('stroke-linecap', 'round');
+      tailFront.setAttribute('stroke-linejoin', 'round');
+
+      front.appendChild(tailFront);
+      svg.appendChild(front);
+
+      c.dataset.omDemonPatched = '1';
+    } catch (e) {}
+  };
+
+  const restoreCat = () => {
+    try {
+      const c = getLogoContainer();
+      if (!c) return;
+
+      const restoreColor = (to, from) => {
+        c.querySelectorAll(`path[fill="${from}"]`).forEach(p => { p.setAttribute('fill', to); });
+      };
+      restoreColor('#535146', '#B00020');
+      restoreColor('#CCB994', '#FF5A5F');
+      restoreColor('#13120F', '#2B0A0A');
+
+      const smile = c.querySelector('svg.smile');
+      if (smile) {
+        smile.querySelectorAll(
+          [
+            '[data-om-demon-back]',
+            '[data-om-demon-front]',
+            '[data-om-neon-style]',
+            '[data-om-neon-filter]',
+            '[data-om-eye-style]',
+            '[data-om-eye-anim]',
+            '[data-om-eye-wrap]',
+            'animateTransform[data-om-eye-anim]',
+            'animate[data-om-eye-anim]',
+            'style[data-om-eye-style]',
+          ].join(',')
+        ).forEach(n => n.remove());
+        try { smile.classList.remove('om-demon-glow'); } catch(_) {}
+      }
+
+      try { delete c.dataset.omDemonPatched; } catch(_) {}
+    } catch(_) {}
+  };
+
+  const replaceMonsterWithDeamon = () => {
+    try {
+      const c = getLogoContainer();
+      if (!c) return;
+
+      const svgEl = c.querySelector('svg.logo-text');
+      if (!svgEl || svgEl.namespaceURI !== 'http://www.w3.org/2000/svg') return;
+
+      if (svgEl.querySelector('g[data-replaced-word="DEAMON"]')) return;
+
+      const NS = 'http://www.w3.org/2000/svg';
+      const vb = (svgEl.getAttribute('viewBox') || '0 0 105 24').split(/\\s+/).map(Number);
+      const vbX = vb[0] || 0;
+      const vbY = vb[1] || 0;
+      const vbW = vb[2] || 105;
+      const vbH = vb[3] || 24;
+      const splitY = vbH * 0.5;
+
+      const paths = Array.from(svgEl.querySelectorAll('path'));
+      if (!paths.length) return;
+
+      const bottomPaths = [];
+      for (const p of paths) {
+        try {
+          const b = p.getBBox();
+          if (b.y >= splitY - 0.5) {
+            bottomPaths.push(p);
+            if (!p.hasAttribute('data-om-orig-display')) {
+              p.setAttribute('data-om-orig-display', p.style.display || '');
+            }
+          }
+        } catch {}
+      }
+
+      if (!bottomPaths.length) return;
+
+      const unionBBox = (elems) => {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const el of elems) {
+          const b = el.getBBox();
+          minX = Math.min(minX, b.x);
+          minY = Math.min(minY, b.y);
+          maxX = Math.max(maxX, b.x + b.width);
+          maxY = Math.max(maxY, b.y + b.height);
+        }
+        return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      };
+
+      const union = unionBBox(bottomPaths);
+      bottomPaths.forEach(p => (p.style.display = 'none'));
+
+      let defs = svgEl.querySelector('defs');
+      if (!defs) { defs = document.createElementNS(NS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild); }
+
+      const outerGlowId = `heatOuterGlow_${Math.random().toString(16).slice(2)}`;
+      const filter = document.createElementNS(NS, 'filter');
+      filter.setAttribute('id', outerGlowId);
+      filter.setAttribute('x', '-35%');
+      filter.setAttribute('y', '-35%');
+      filter.setAttribute('width', '170%');
+      filter.setAttribute('height', '170%');
+      filter.setAttribute('color-interpolation-filters', 'sRGB');
+      filter.setAttribute('data-om-wordmark-filter', '1');
+
+      const blur = document.createElementNS(NS, 'feGaussianBlur');
+      blur.setAttribute('in', 'SourceGraphic');
+      blur.setAttribute('stdDeviation', '0.7');
+      blur.setAttribute('result', 'blur');
+
+      const blurAnim = document.createElementNS(NS, 'animate');
+      blurAnim.setAttribute('attributeName', 'stdDeviation');
+      blurAnim.setAttribute('dur', '1.1s');
+      blurAnim.setAttribute('values', '0.55;1.25;0.65');
+      blurAnim.setAttribute('repeatCount', 'indefinite');
+      blur.appendChild(blurAnim);
+
+      const color = document.createElementNS(NS, 'feColorMatrix');
+      color.setAttribute('in', 'blur');
+      color.setAttribute('type', 'matrix');
+      color.setAttribute('values',
+        '1.35 0 0 0 0.10 ' +
+        '0.55 1.15 0 0 0.05 ' +
+        '0 0.25 0.75 0 0.00 ' +
+        '0 0 0 1 0'
+      );
+      color.setAttribute('result', 'warm');
+
+      const merge = document.createElementNS(NS, 'feMerge');
+      const m1 = document.createElementNS(NS, 'feMergeNode');
+      m1.setAttribute('in', 'warm');
+      const m2 = document.createElementNS(NS, 'feMergeNode');
+      m2.setAttribute('in', 'SourceGraphic');
+      merge.appendChild(m1);
+      merge.appendChild(m2);
+
+      filter.appendChild(blur);
+      filter.appendChild(color);
+      filter.appendChild(merge);
+      defs.appendChild(filter);
+
+      const burnGradId = `deamonBurnGrad_${Math.random().toString(16).slice(2)}`;
+      const lg = document.createElementNS(NS, 'linearGradient');
+      lg.setAttribute('id', burnGradId);
+      lg.setAttribute('gradientUnits', 'objectBoundingBox');
+      lg.setAttribute('x1', '0');
+      lg.setAttribute('y1', '0');
+      lg.setAttribute('x2', '0');
+      lg.setAttribute('y2', '1');
+      lg.setAttribute('data-om-wordmark-grad', '1');
+
+      const s1 = document.createElementNS(NS, 'stop');
+      s1.setAttribute('offset', '0%');
+      s1.setAttribute('stop-color', 'currentColor');
+      s1.setAttribute('stop-opacity', '1');
+
+      const s2 = document.createElementNS(NS, 'stop');
+      s2.setAttribute('offset', '62%');
+      s2.setAttribute('stop-color', 'currentColor');
+      s2.setAttribute('stop-opacity', '1');
+
+      const a2 = document.createElementNS(NS, 'animate');
+      a2.setAttribute('attributeName', 'offset');
+      a2.setAttribute('dur', '1.1s');
+      a2.setAttribute('values', '58%;64%;60%');
+      a2.setAttribute('repeatCount', 'indefinite');
+      s2.appendChild(a2);
+
+      const s3 = document.createElementNS(NS, 'stop');
+      s3.setAttribute('offset', '78%');
+      s3.setAttribute('stop-color', '#FFD24A');
+      s3.setAttribute('stop-opacity', '1');
+
+      const a3 = document.createElementNS(NS, 'animate');
+      a3.setAttribute('attributeName', 'offset');
+      a3.setAttribute('dur', '1.1s');
+      a3.setAttribute('values', '74%;82%;76%');
+      a3.setAttribute('repeatCount', 'indefinite');
+      s3.appendChild(a3);
+
+      const s4 = document.createElementNS(NS, 'stop');
+      s4.setAttribute('offset', '100%');
+      s4.setAttribute('stop-color', '#FFF2A6');
+      s4.setAttribute('stop-opacity', '1');
+
+      const a4o = document.createElementNS(NS, 'animate');
+      a4o.setAttribute('attributeName', 'stop-opacity');
+      a4o.setAttribute('dur', '0.9s');
+      a4o.setAttribute('values', '0.85;1;0.9');
+      a4o.setAttribute('repeatCount', 'indefinite');
+      s4.appendChild(a4o);
+
+      lg.appendChild(s1);
+      lg.appendChild(s2);
+      lg.appendChild(s3);
+      lg.appendChild(s4);
+      defs.appendChild(lg);
+
+      const fadeGradId = `bottomFadeMaskGrad_${Math.random().toString(16).slice(2)}`;
+      const lgMask = document.createElementNS(NS, 'linearGradient');
+      lgMask.setAttribute('id', fadeGradId);
+      lgMask.setAttribute('x1', '0');
+      lgMask.setAttribute('y1', '0');
+      lgMask.setAttribute('x2', '0');
+      lgMask.setAttribute('y2', '1');
+      lgMask.setAttribute('data-om-wordmark-mask-grad', '1');
+
+      const sm1 = document.createElementNS(NS, 'stop');
+      sm1.setAttribute('offset', '0%');
+      sm1.setAttribute('stop-color', 'black');
+      sm1.setAttribute('stop-opacity', '0');
+
+      const sm2 = document.createElementNS(NS, 'stop');
+      sm2.setAttribute('offset', '55%');
+      sm2.setAttribute('stop-color', 'black');
+      sm2.setAttribute('stop-opacity', '0');
+
+      const sm3 = document.createElementNS(NS, 'stop');
+      sm3.setAttribute('offset', '100%');
+      sm3.setAttribute('stop-color', 'white');
+      sm3.setAttribute('stop-opacity', '1');
+
+      lgMask.appendChild(sm1);
+      lgMask.appendChild(sm2);
+      lgMask.appendChild(sm3);
+      defs.appendChild(lgMask);
+
+      const maskId = `bottomOnlyMask_${Math.random().toString(16).slice(2)}`;
+      const mask = document.createElementNS(NS, 'mask');
+      mask.setAttribute('id', maskId);
+      mask.setAttribute('data-om-wordmark-mask', '1');
+
+      const rect = document.createElementNS(NS, 'rect');
+      rect.setAttribute('x', vbX);
+      rect.setAttribute('y', vbY);
+      rect.setAttribute('width', vbW);
+      rect.setAttribute('height', vbH);
+      rect.setAttribute('fill', `url(#${fadeGradId})`);
+      mask.appendChild(rect);
+      defs.appendChild(mask);
+
+      const computed = getComputedStyle(svgEl);
+      const fontFamily = computed.fontFamily || 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+
+      const g = document.createElementNS(NS, 'g');
+      g.setAttribute('data-replaced-word', 'DEAMON');
+
+      const x = union.x;
+      const baselineY = union.y + union.height;
+
+      const glow = document.createElementNS(NS, 'text');
+      glow.textContent = 'DEAMON';
+      glow.setAttribute('x', x);
+      glow.setAttribute('y', baselineY);
+      glow.setAttribute('fill', 'currentColor');
+      glow.setAttribute('font-family', fontFamily);
+      glow.setAttribute('font-weight', '800');
+      glow.setAttribute('letter-spacing', '0');
+      glow.setAttribute('dominant-baseline', 'alphabetic');
+      glow.setAttribute('filter', `url(#${outerGlowId})`);
+      glow.setAttribute('mask', `url(#${maskId})`);
+      glow.setAttribute('opacity', '0.95');
+
+      const text = document.createElementNS(NS, 'text');
+      text.textContent = 'DEAMON';
+      text.setAttribute('x', x);
+      text.setAttribute('y', baselineY);
+      text.setAttribute('fill', `url(#${burnGradId})`);
+      text.setAttribute('font-family', fontFamily);
+      text.setAttribute('font-weight', '800');
+      text.setAttribute('letter-spacing', '0');
+      text.setAttribute('dominant-baseline', 'alphabetic');
+
+      g.appendChild(glow);
+      g.appendChild(text);
+      svgEl.appendChild(g);
+
+      const targetHeight = union.height * 1.20;
+      let fontSize = targetHeight * 1.15;
+      text.setAttribute('font-size', fontSize);
+      glow.setAttribute('font-size', fontSize);
+
+      const fitFontSizeToHeight = (textEl, targetH, iters) => {
+        let lo = 1;
+        let hi = targetH * 6;
+        for (let i = 0; i < iters; i++) {
+          const mid = (lo + hi) / 2;
+          textEl.setAttribute('font-size', mid);
+          const b = textEl.getBBox();
+          if (b.height > targetH) hi = mid;
+          else lo = mid;
+        }
+        return lo;
+      };
+
+      fontSize = fitFontSizeToHeight(text, targetHeight, 10);
+      text.setAttribute('font-size', fontSize);
+      glow.setAttribute('font-size', fontSize);
+
+      const tb = text.getBBox();
+      const scaleX = union.width / (tb.width || 1);
+      const scaleY = 1.5;
+      const dropY = 3;
+
+      const unionBottom = union.y + union.height + dropY;
+      const anchorX = tb.x;
+      const anchorY = tb.y + tb.height;
+
+      g.setAttribute(
+        'transform',
+        `translate(${union.x.toFixed(3)},${unionBottom.toFixed(3)}) ` +
+        `scale(${scaleX.toFixed(4)},${scaleY.toFixed(4)}) ` +
+        `translate(${(-anchorX).toFixed(3)},${(-anchorY).toFixed(3)})`
+      );
+    } catch (e) {}
+  };
+
+  const restoreWordmark = () => {
+    try {
+      const c = getLogoContainer();
+      if (!c) return;
+
+      const svgEl = c.querySelector('svg.logo-text');
+      if (!svgEl) return;
+
+      svgEl.querySelectorAll('g[data-replaced-word="DEAMON"]').forEach(n => n.remove());
+      svgEl.querySelectorAll('[data-om-wordmark-filter]').forEach(n => n.remove());
+      svgEl.querySelectorAll('[data-om-wordmark-grad]').forEach(n => n.remove());
+      svgEl.querySelectorAll('[data-om-wordmark-mask]').forEach(n => n.remove());
+      svgEl.querySelectorAll('[data-om-wordmark-mask-grad]').forEach(n => n.remove());
+
+      svgEl.querySelectorAll('path[data-om-orig-display]').forEach(p => {
+        const orig = p.getAttribute('data-om-orig-display');
+        if (orig) p.style.display = orig;
+        else p.style.display = '';
+        p.removeAttribute('data-om-orig-display');
+      });
+    } catch(_) {}
+  };
+
+  const applyAllPatches = () => {
+    applyLocalTheme();
+    patchSidebarLogoToDemonCat();
+    if (isSidebarOpen()) {
+      replaceMonsterWithDeamon();
+    }
+  };
+
+  const restoreAllPatches = () => {
+    restoreThemeBackup();
+    restoreCat();
+    restoreWordmark();
+  };
+
+  const syncPatches = () => {
+    captureThemeBackupOnce();
+    const isOpen = isSidebarOpen();
+    if (!state.sidebarWasOpen && isOpen) {
+      if (state.themeOn) {
+        replaceMonsterWithDeamon();
+      }
+    } else if (state.sidebarWasOpen && !isOpen) {
+      restoreWordmark();
+    }
+    state.sidebarWasOpen = isOpen;
+    if (state.themeOn) {
+      applyAllPatches();
+    } else {
+      restoreAllPatches();
+    }
+  };
+
+  const toggleThemePatches = () => {
+    captureThemeBackupOnce();
+    state.themeOn = !state.themeOn;
+    if (state.themeOn) {
+      applyAllPatches();
+      toast('Theme: ON');
+    } else {
+      restoreAllPatches();
+      toast('Theme: OFF');
+    }
+  };
+
+  try {
+    const mo = new MutationObserver(() => {
+      clearTimeout(mo._timer);
+      mo._timer = setTimeout(() => {
+        syncPatches();
+      }, 50);
+    });
+
+    mo.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    });
+  } catch(e) {}
+
+  captureThemeBackupOnce();
+  state.sidebarWasOpen = isSidebarOpen();
+  syncPatches();
+
+  toast('Editor: ON (F12)');
+  return { ok: true, msg: 'installed', version: VERSION, enabled: state.enabled };
+})();"
+(() => {"
+  return !!(window.__ctrlEdit && window.__ctrlEdit.version === 18);"
+})();";
