@@ -1159,7 +1159,4 @@
 
   toast('Editor: ON (F12)');
   return { ok: true, msg: 'installed', version: VERSION, enabled: state.enabled };
-})();"
-(() => {"
-  return !!(window.__ctrlEdit && window.__ctrlEdit.version === 18);"
-})();";
+})();
