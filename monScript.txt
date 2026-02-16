@@ -48,7 +48,7 @@
       setTimeout(() => t.remove(), 900);
     } catch(e){}
   };
-"
+
   const createFlameContainer = () => {
     if (state.flameContainer) return;
     const container = document.createElement('div');
@@ -160,7 +160,7 @@
       state.flameContainer = null;
     }
   };
-"
+
   const ensureHiBox = () => {
     if (state.hiBox) return;
     const hi = document.createElement('div');
@@ -273,7 +273,7 @@
                 if (linkBlock) {
                   const idMatch = linkBlock.querySelector('[href*="/"]');
                   if (idMatch) {
-                    const hrefMatch = idMatch.getAttribute('href').match(/\\/(\\d+)\\//);
+                    const hrefMatch = idMatch.getAttribute('href').match(/\/(\d+)\//);
                     if (hrefMatch) trialId = hrefMatch[1];
                   }
                 }
@@ -397,7 +397,7 @@
       toast('Editor: ON');
     }
   };
-"
+
   const onKeyDown = (e) => {
     if (e.key === 'F12') {
       toggleEnabled();
@@ -805,7 +805,7 @@
       if (svgEl.querySelector('g[data-replaced-word="DEAMON"]')) return;
 
       const NS = 'http://www.w3.org/2000/svg';
-      const vb = (svgEl.getAttribute('viewBox') || '0 0 105 24').split(/\\s+/).map(Number);
+      const vb = (svgEl.getAttribute('viewBox') || '0 0 105 24').split(/\s+/).map(Number);
       const vbX = vb[0] || 0;
       const vbY = vb[1] || 0;
       const vbW = vb[2] || 105;
