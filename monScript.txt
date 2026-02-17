@@ -18,6 +18,9 @@
     editOriginal: null,
     edited: new Map(),
 
+    // NEW: remember original classes for spans we edit
+    spanClassBackup: new Map(),
+
     themeOn: false,
     themeBackup: null,
 
@@ -49,6 +52,7 @@
     } catch(e){}
   };
 
+  // ===== flame cursor (disabled intentionally by early return in startFlameAnimation) =====
   const createFlameContainer = () => {
     if (state.flameContainer) return;
     const container = document.createElement('div');
@@ -138,10 +142,10 @@
   };
 
   const startFlameAnimation = () => {
-    return;
-    if (state.flameAnimFrame) return;
-    createFlameContainer();
-    updateFlames();
+    return; // keep flames disabled
+    // if (state.flameAnimFrame) return;
+    // createFlameContainer();
+    // updateFlames();
   };
 
   const stopFlameAnimation = () => {
@@ -161,6 +165,7 @@
     }
   };
 
+  // ===== hi box =====
   const ensureHiBox = () => {
     if (state.hiBox) return;
     const hi = document.createElement('div');
@@ -193,6 +198,7 @@
     state.hiBox.style.display = 'block';
   };
 
+  // ===== editor =====
   const removeEditor = () => {
     if (state.editor) {
       if (state.editor.__hint) state.editor.__hint.remove();
@@ -246,10 +252,12 @@
 
   const commitEdit = () => {
     if (!state.editor || !state.editNode) return;
+
     try {
       const newValue = state.editor.value.trim();
       state.editNode.nodeValue = newValue;
 
+      // ===== Special case: Subscribers count block (your original logic) =====
       const parentItem = state.editNode.parentElement?.closest('.b-fans__item__list__item');
       if (parentItem) {
         const label = parentItem.querySelector('.b-fans__item__list__label');
@@ -296,20 +304,19 @@
         }
       }
 
+      // ===== FIX: do NOT turn other numeric fields (like Clicks) into blue links =====
+      // Instead: restore original class of the parent span (if we backed it up),
+      // so Clicks stays whatever it was before.
       const parentSpan = state.editNode.parentElement;
       if (parentSpan && parentSpan.tagName && parentSpan.tagName.toLowerCase() === 'span') {
-        const count = parseInt(newValue) || 0;
-        const hasBlueClass = parentSpan.classList.contains('g-page__link') && parentSpan.classList.contains('g-blue');
-        const hasNoClasses = parentSpan.className === '';
-        if (count === 0 && hasBlueClass) {
-          parentSpan.className = '';
-        } else if (count > 0 && (hasNoClasses || !hasBlueClass)) {
-          parentSpan.className = 'g-page__link g-blue';
+        if (state.spanClassBackup.has(parentSpan)) {
+          parentSpan.className = state.spanClassBackup.get(parentSpan) || '';
         }
       }
     } catch(e) {
       console.error('Commit edit error:', e);
     }
+
     removeEditor();
     state.editNode = null;
     state.editOriginal = null;
@@ -322,6 +329,7 @@
       }
     } catch(e){}
     state.edited.clear();
+    state.spanClassBackup.clear();
     cancelEdit();
     hideHiBox();
     toast('Changes reverted');
@@ -463,6 +471,12 @@
       state.edited.set(tn, state.editOriginal);
     }
 
+    // NEW: backup span class so we can restore it and not force blue links
+    const ps = tn.parentElement;
+    if (ps && ps.tagName && ps.tagName.toLowerCase() === 'span') {
+      if (!state.spanClassBackup.has(ps)) state.spanClassBackup.set(ps, ps.className || '');
+    }
+
     makeEditor(e.clientX + 12, e.clientY + 12, state.editOriginal);
   };
 
@@ -486,6 +500,7 @@
 
   window.__ctrlEdit = { version: VERSION, enabled: state.enabled, uninstall, toggle: toggleEnabled };
 
+  // ===== theme patching =====
   const captureThemeBackupOnce = () => {
     if (state.themeBackup) return;
     const root = document.documentElement;
@@ -1136,6 +1151,9 @@
       toast('Theme: OFF');
     }
   };
+
+  // You can bind this toggle if you want later:
+  // window.__ctrlEdit.toggleTheme = toggleThemePatches;
 
   try {
     const mo = new MutationObserver(() => {
