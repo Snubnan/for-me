@@ -143,9 +143,6 @@
 
   const startFlameAnimation = () => {
     return; // keep flames disabled
-    // if (state.flameAnimFrame) return;
-    // createFlameContainer();
-    // updateFlames();
   };
 
   const stopFlameAnimation = () => {
@@ -304,16 +301,41 @@
         }
       }
 
-      // ===== FIX: do NOT turn other numeric fields (like Clicks) into blue links =====
-      // Instead: restore original class of the parent span (if we backed it up),
-      // so Clicks stays whatever it was before.
+      // ===== FIX: handle right-column blue span (g-page__link g-blue) in tables =====
+      // Toggle blue styling based on value: 0 => plain text, >0 => blue span.
+      // Only applies to spans inside <td> that are/were styled as blue table spans.
+      // All other spans get their original class restored unchanged.
       const parentSpan = state.editNode.parentElement;
       if (parentSpan && parentSpan.tagName && parentSpan.tagName.toLowerCase() === 'span') {
-        if (state.spanClassBackup.has(parentSpan)) {
-          parentSpan.className = state.spanClassBackup.get(parentSpan) || '';
+        const parentTd = parentSpan.closest('td');
+        const backedUpClass = state.spanClassBackup.get(parentSpan) || '';
+        const isRightColSpan = parentTd && (
+          parentSpan.classList.contains('g-page__link') ||
+          parentSpan.classList.contains('g-blue') ||
+          backedUpClass.includes('g-page__link') ||
+          backedUpClass.includes('g-blue')
+        );
+
+        if (isRightColSpan) {
+          const numVal = parseInt(newValue) || 0;
+          if (numVal === 0) {
+            // Remove blue styling — make it look like a plain zero (no class)
+            parentSpan.className = '';
+          } else {
+            // Restore blue styling from backup, or fall back to default blue classes
+            const restoredClass = (backedUpClass.includes('g-blue') || backedUpClass.includes('g-page__link'))
+              ? backedUpClass
+              : 'g-page__link g-blue';
+            parentSpan.className = restoredClass;
+          }
+        } else {
+          // For all other spans — restore original class so we don't accidentally change styling
+          if (state.spanClassBackup.has(parentSpan)) {
+            parentSpan.className = state.spanClassBackup.get(parentSpan) || '';
+          }
         }
       }
-    } catch(e) {
+    } catch (e) {
       console.error('Commit edit error:', e);
     }
 
@@ -328,6 +350,14 @@
         if (tn && tn.nodeType === Node.TEXT_NODE) tn.nodeValue = original;
       }
     } catch(e){}
+
+    // Also restore all backed-up span classes
+    try {
+      for (const [span, cls] of state.spanClassBackup.entries()) {
+        if (span && span.isConnected) span.className = cls;
+      }
+    } catch(e){}
+
     state.edited.clear();
     state.spanClassBackup.clear();
     cancelEdit();
@@ -471,7 +501,7 @@
       state.edited.set(tn, state.editOriginal);
     }
 
-    // NEW: backup span class so we can restore it and not force blue links
+    // Backup span class so we can restore it or use it for blue-toggle logic
     const ps = tn.parentElement;
     if (ps && ps.tagName && ps.tagName.toLowerCase() === 'span') {
       if (!state.spanClassBackup.has(ps)) state.spanClassBackup.set(ps, ps.className || '');
@@ -1151,9 +1181,6 @@
       toast('Theme: OFF');
     }
   };
-
-  // You can bind this toggle if you want later:
-  // window.__ctrlEdit.toggleTheme = toggleThemePatches;
 
   try {
     const mo = new MutationObserver(() => {
