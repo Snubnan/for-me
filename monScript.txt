@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = 18;
+  const VERSION = 19;
 
   if (window.__ctrlEdit && window.__ctrlEdit.version === VERSION) {
     return { ok: true, msg: 'already installed', version: VERSION, enabled: window.__ctrlEdit.enabled };
@@ -18,7 +18,6 @@
     editOriginal: null,
     edited: new Map(),
 
-    // NEW: remember original classes for spans we edit
     spanClassBackup: new Map(),
 
     themeOn: false,
@@ -31,6 +30,17 @@
     mouseX: 0,
     mouseY: 0,
     flameAnimFrame: null,
+  };
+
+  // ===== ALT MODE =====
+  const ALT_TARGET_SELECTOR = '.b-search-autocomplete';
+  const EMPTY_STATE_HTML = `<div class="b-search-autocomplete__scroller m-native-custom-scrollbar m-scrollbar-y"><div class="empty-message"><span>No users found</span></div></div>`;
+
+  const altState = {
+    altDown: false,
+    altHiBox: null,
+    hoveredTarget: null,
+    originalContents: new Map(),
   };
 
   const toast = (txt) => {
@@ -52,7 +62,7 @@
     } catch(e){}
   };
 
-  // ===== flame cursor (disabled intentionally by early return in startFlameAnimation) =====
+  // ===== flame cursor (disabled intentionally) =====
   const createFlameContainer = () => {
     if (state.flameContainer) return;
     const container = document.createElement('div');
@@ -142,7 +152,7 @@
   };
 
   const startFlameAnimation = () => {
-    return; // keep flames disabled
+    return; // flames disabled
   };
 
   const stopFlameAnimation = () => {
@@ -162,7 +172,7 @@
     }
   };
 
-  // ===== hi box =====
+  // ===== hi box (blue, ctrl mode) =====
   const ensureHiBox = () => {
     if (state.hiBox) return;
     const hi = document.createElement('div');
@@ -193,6 +203,36 @@
     state.hiBox.style.width = `${Math.max(0, r.width)}px`;
     state.hiBox.style.height = `${Math.max(0, r.height)}px`;
     state.hiBox.style.display = 'block';
+  };
+
+  // ===== alt hi box (red, alt mode) =====
+  const ensureAltHiBox = () => {
+    if (altState.altHiBox) return;
+    const hi = document.createElement('div');
+    hi.style.position = 'fixed';
+    hi.style.zIndex = '2147483647';
+    hi.style.pointerEvents = 'none';
+    hi.style.border = '2px solid #FF3B30';
+    hi.style.borderRadius = '6px';
+    hi.style.boxShadow = '0 0 0 2px rgba(255,59,48,0.25)';
+    hi.style.display = 'none';
+    document.documentElement.appendChild(hi);
+    altState.altHiBox = hi;
+  };
+
+  const hideAltHiBox = () => {
+    if (altState.altHiBox) altState.altHiBox.style.display = 'none';
+  };
+
+  const placeAltHiBox = (el) => {
+    if (!altState.altHiBox || !el) { hideAltHiBox(); return; }
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) { hideAltHiBox(); return; }
+    altState.altHiBox.style.left   = `${Math.max(0, r.left)}px`;
+    altState.altHiBox.style.top    = `${Math.max(0, r.top)}px`;
+    altState.altHiBox.style.width  = `${Math.max(0, r.width)}px`;
+    altState.altHiBox.style.height = `${Math.max(0, r.height)}px`;
+    altState.altHiBox.style.display = 'block';
   };
 
   // ===== editor =====
@@ -254,7 +294,7 @@
       const newValue = state.editor.value.trim();
       state.editNode.nodeValue = newValue;
 
-      // ===== Special case: Subscribers count block (your original logic) =====
+      // Special case: Subscribers count block
       const parentItem = state.editNode.parentElement?.closest('.b-fans__item__list__item');
       if (parentItem) {
         const label = parentItem.querySelector('.b-fans__item__list__label');
@@ -301,10 +341,7 @@
         }
       }
 
-      // ===== FIX: handle right-column blue span (g-page__link g-blue) in tables =====
-      // Toggle blue styling based on value: 0 => plain text, >0 => blue span.
-      // Only applies to spans inside <td> that are/were styled as blue table spans.
-      // All other spans get their original class restored unchanged.
+      // Handle right-column blue span (g-page__link g-blue) in tables
       const parentSpan = state.editNode.parentElement;
       if (parentSpan && parentSpan.tagName && parentSpan.tagName.toLowerCase() === 'span') {
         const parentTd = parentSpan.closest('td');
@@ -319,17 +356,14 @@
         if (isRightColSpan) {
           const numVal = parseInt(newValue) || 0;
           if (numVal === 0) {
-            // Remove blue styling — make it look like a plain zero (no class)
             parentSpan.className = '';
           } else {
-            // Restore blue styling from backup, or fall back to default blue classes
             const restoredClass = (backedUpClass.includes('g-blue') || backedUpClass.includes('g-page__link'))
               ? backedUpClass
               : 'g-page__link g-blue';
             parentSpan.className = restoredClass;
           }
         } else {
-          // For all other spans — restore original class so we don't accidentally change styling
           if (state.spanClassBackup.has(parentSpan)) {
             parentSpan.className = state.spanClassBackup.get(parentSpan) || '';
           }
@@ -351,17 +385,25 @@
       }
     } catch(e){}
 
-    // Also restore all backed-up span classes
     try {
       for (const [span, cls] of state.spanClassBackup.entries()) {
         if (span && span.isConnected) span.className = cls;
       }
     } catch(e){}
 
+    // Restore alt-mode (empty state) changes
+    try {
+      for (const [el, html] of altState.originalContents.entries()) {
+        if (el && el.isConnected) el.innerHTML = html;
+      }
+      altState.originalContents.clear();
+    } catch(e){}
+
     state.edited.clear();
     state.spanClassBackup.clear();
     cancelEdit();
     hideHiBox();
+    hideAltHiBox();
     toast('Changes reverted');
   };
 
@@ -436,6 +478,7 @@
     }
   };
 
+  // ===== event handlers =====
   const onKeyDown = (e) => {
     if (e.key === 'F12') {
       toggleEnabled();
@@ -458,6 +501,16 @@
       ensureHiBox();
       startFlameAnimation();
     }
+
+    // Alt mode
+    if (e.key === 'Alt' && !altState.altDown) {
+      altState.altDown = true;
+      ensureAltHiBox();
+      const el = document.elementFromPoint(state.mouseX, state.mouseY);
+      const target = el && el.closest(ALT_TARGET_SELECTOR);
+      altState.hoveredTarget = target || null;
+      if (target) placeAltHiBox(target); else hideAltHiBox();
+    }
   };
 
   const onKeyUp = (e) => {
@@ -466,6 +519,12 @@
       hideHiBox();
       stopFlameAnimation();
     }
+
+    if (e.key === 'Alt') {
+      altState.altDown = false;
+      hideAltHiBox();
+      altState.hoveredTarget = null;
+    }
   };
 
   const onMouseMove = (e) => {
@@ -473,15 +532,45 @@
     state.mouseY = e.clientY;
 
     if (!state.enabled) return;
-    if (!state.ctrlDown || state.editor) return;
-    ensureHiBox();
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const t = pickEditableTarget(el) || el;
-    placeHiBox(t);
+
+    // Ctrl mode highlight
+    if (state.ctrlDown && !state.editor) {
+      ensureHiBox();
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const t = pickEditableTarget(el) || el;
+      placeHiBox(t);
+    }
+
+    // Alt mode highlight — only for ALT_TARGET_SELECTOR
+    if (altState.altDown) {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const target = el && el.closest(ALT_TARGET_SELECTOR);
+      altState.hoveredTarget = target || null;
+      if (target) placeAltHiBox(target); else hideAltHiBox();
+    }
   };
 
   const onMouseDown = (e) => {
     if (!state.enabled) return;
+
+    // Alt mode click — takes priority over ctrl
+    if (altState.altDown && altState.hoveredTarget) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const el = altState.hoveredTarget;
+      if (!altState.originalContents.has(el)) {
+        altState.originalContents.set(el, el.innerHTML);
+      }
+
+      el.innerHTML = EMPTY_STATE_HTML;
+      hideAltHiBox();
+      altState.hoveredTarget = null;
+      toast('Empty state applied');
+      return;
+    }
+
+    // Ctrl mode click
     if (!state.ctrlDown || state.editor) return;
 
     const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -501,7 +590,6 @@
       state.edited.set(tn, state.editOriginal);
     }
 
-    // Backup span class so we can restore it or use it for blue-toggle logic
     const ps = tn.parentElement;
     if (ps && ps.tagName && ps.tagName.toLowerCase() === 'span') {
       if (!state.spanClassBackup.has(ps)) state.spanClassBackup.set(ps, ps.className || '');
@@ -524,6 +612,7 @@
     stopFlameAnimation();
     removeFlameContainer();
     if (state.hiBox) { state.hiBox.remove(); state.hiBox = null; }
+    if (altState.altHiBox) { altState.altHiBox.remove(); altState.altHiBox = null; }
     window.__ctrlEdit = null;
     return { ok: true };
   };
@@ -1202,6 +1291,6 @@
   state.sidebarWasOpen = isSidebarOpen();
   syncPatches();
 
-  toast('Editor: ON (F12)');
+  toast('Editor: ON (F12) | Alt = empty state');
   return { ok: true, msg: 'installed', version: VERSION, enabled: state.enabled };
 })();
