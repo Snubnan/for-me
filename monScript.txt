@@ -168,10 +168,11 @@
 
   const closeSearch = () => {
     searchState.open = false;
-    stopSearchPoll();    // ← останавливаем цикл
+    stopSearchPoll();
     if (searchState.panel) searchState.panel.style.display = 'none';
     if (searchState.input) searchState.input.value = '';
-    applySearch('');     // сбрасываем display: none со всех блоков
+    removePhantom();     // ← убираем пустышку
+    applySearch('');
   };
 
   const toggleSearch = () => {
