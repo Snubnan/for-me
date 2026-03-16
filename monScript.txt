@@ -37,7 +37,9 @@
     open: false,
     panel: null,
     input: null,
+    count: null,
     hiddenBlocks: [],
+    pollTimer: null,         // ← новое
   };
 
   const LINK_BLOCK_SELECTOR = '.b-offer-join.m-trial-link-block';
@@ -118,18 +120,34 @@
     }
   };
 
+  const startSearchPoll = () => {
+    if (searchState.pollTimer) return;
+    searchState.pollTimer = setInterval(() => {
+      if (searchState.input) applySearch(searchState.input.value);
+    }, 300);
+  };
+
+  const stopSearchPoll = () => {
+    if (searchState.pollTimer) {
+      clearInterval(searchState.pollTimer);
+      searchState.pollTimer = null;
+    }
+  };
+
   const openSearch = () => {
     searchState.open = true;
     createSearchPanel();
     searchState.panel.style.display = 'flex';
     setTimeout(() => { if (searchState.input) searchState.input.focus(); }, 30);
+    startSearchPoll();   // ← запускаем цикл
   };
 
   const closeSearch = () => {
     searchState.open = false;
+    stopSearchPoll();    // ← останавливаем цикл
     if (searchState.panel) searchState.panel.style.display = 'none';
     if (searchState.input) searchState.input.value = '';
-    applySearch('');
+    applySearch('');     // сбрасываем display: none со всех блоков
   };
 
   const toggleSearch = () => {
@@ -139,7 +157,8 @@
 
   const removeSearchPanel = () => {
     closeSearch();
-    if (searchState.panel) { searchState.panel.remove(); searchState.panel = null; searchState.input = null; }
+    stopSearchPoll();
+    if (searchState.panel) { searchState.panel.remove(); searchState.panel = null; searchState.input = null; searchState.count = null; }
   };
 
   // ===== ALT MODE =====
