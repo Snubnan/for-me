@@ -102,6 +102,23 @@
     }, true);
   };
 
+  const PHANTOM_ID = '__search_phantom__';
+
+  const ensurePhantom = () => {
+    const container = document.querySelector('.b-offer-wrapper');
+    if (!container) return;
+    if (container.querySelector(`#${PHANTOM_ID}`)) return;
+    const phantom = document.createElement('div');
+    phantom.id = PHANTOM_ID;
+    phantom.style.cssText = 'width:1px;height:1px;opacity:0;pointer-events:none;position:absolute;';
+    container.appendChild(phantom);
+  };
+
+  const removePhantom = () => {
+    const el = document.getElementById(PHANTOM_ID);
+    if (el) el.remove();
+  };
+
   const applySearch = (query) => {
     const blocks = document.querySelectorAll(LINK_BLOCK_SELECTOR);
     const q = query.trim().toLowerCase();
@@ -117,6 +134,13 @@
 
     if (searchState.count) {
       searchState.count.textContent = q ? `${visible}` : '';
+    }
+
+    // если все скрыты — держим пустышку чтобы infinite scroll думал что есть контент
+    if (q && visible === 0) {
+      ensurePhantom();
+    } else {
+      removePhantom();
     }
   };
 
