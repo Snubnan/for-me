@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = 20;
+  const VERSION = 21;
 
   if (window.__ctrlEdit && window.__ctrlEdit.version === VERSION) {
     return { ok: true, msg: 'already installed', version: VERSION, enabled: window.__ctrlEdit.enabled };
