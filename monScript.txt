@@ -110,7 +110,7 @@
     if (container.querySelector(`#${PHANTOM_ID}`)) return;
     const phantom = document.createElement('div');
     phantom.id = PHANTOM_ID;
-    phantom.style.cssText = 'width:1px;height:400px;opacity:0;pointer-events:none;position:absolute;';
+    phantom.style.cssText = 'width:1px;height:10000px;opacity:0;pointer-events:none;position:absolute;';
     container.appendChild(phantom);
   };
 
