@@ -62,13 +62,8 @@
   const startScrollEmulation = () => {
     if (searchState.scrollTimer) return;
     searchState.scrollTimer = setInterval(() => {
-      const scroller =
-        document.querySelector('.b-settings-content') ||
-        document.querySelector('.b-settings__content') ||
-        document.querySelector('main') ||
-        document.documentElement;
-      scroller.scrollTop += 1;
-      setTimeout(() => { scroller.scrollTop -= 1; }, 50);
+      window.scrollBy(0, 1);
+      setTimeout(() => { window.scrollBy(0, -1); }, 50);
     }, 1000);
   };
 
