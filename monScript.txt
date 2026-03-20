@@ -62,8 +62,28 @@
   const startScrollEmulation = () => {
     if (searchState.scrollTimer) return;
     searchState.scrollTimer = setInterval(() => {
-      window.scrollBy(0, 1);
-      setTimeout(() => { window.scrollBy(0, -1); }, 50);
+      const target = document.querySelector('.b-offer-wrapper') ||
+                     document.querySelector('.b-settings-content') ||
+                     document.querySelector('.b-settings__content') ||
+                     document.documentElement;
+
+      const wheelDown = new WheelEvent('wheel', {
+        bubbles: true, cancelable: true,
+        view: window,
+        deltaY: 100,
+        deltaMode: 0,
+      });
+      target.dispatchEvent(wheelDown);
+
+      setTimeout(() => {
+        const wheelUp = new WheelEvent('wheel', {
+          bubbles: true, cancelable: true,
+          view: window,
+          deltaY: -100,
+          deltaMode: 0,
+        });
+        target.dispatchEvent(wheelUp);
+      }, 50);
     }, 1000);
   };
 
