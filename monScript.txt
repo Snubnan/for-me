@@ -372,17 +372,44 @@
     return false;
   };
 
-  const NOW_24H = 24 * 60 * 60 * 1000;
+  const MS_24H = 24 * 60 * 60 * 1000;
+  const MS_48H = 48 * 60 * 60 * 1000;
+
+  /* Returns true if the row has "New message" button or "Canceled" icon
+     — means broadcast was cancelled/not fully sent, skip highlight */
+  const rowIsNewMessage = (row) => {
+    const btns = row.querySelectorAll('button');
+    for (const btn of btns) {
+      if (/new\s*message/i.test(btn.textContent)) return true;
+    }
+    if (row.querySelector('[aria-label="Canceled"]')) return true;
+    return false;
+  };
+
+  /* If sent Mon/Wed/Fri between 15:00–15:29 (page TZ) → threshold 48h, else 24h */
+  const getAgeThreshold = (tsUtcMs) => {
+    const pageTZoff = getPageTZOffset(); // minutes from UTC
+    const offMs = (pageTZoff !== null ? pageTZoff : 0) * 60 * 1000;
+    // Shift timestamp to page local time, then read UTC fields (they now represent local)
+    const d = new Date(tsUtcMs + offMs);
+    const dow = d.getUTCDay();   // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+    const h   = d.getUTCHours();
+    const mn  = d.getUTCMinutes();
+    const isMWF  = (dow === 1 || dow === 3 || dow === 5);
+    const isSlot = (h === 15 && mn < 30);
+    return (isMWF && isSlot) ? MS_48H : MS_24H;
+  };
 
   const applyRowHighlight = (row, visible) => {
-    // Remove existing highlight first
     row.classList.remove('om-old-row');
     if (!S.hlOld || !S.hideNonAd || !visible) return;
-    // Only highlight rows that are visible (passed the ad filter)
+    // Skip cancelled / "New message" rows
+    if (rowIsNewMessage(row)) return;
     const ts = parseRowDate(row);
     if (ts === null) return;
     const age = Date.now() - ts;
-    if (age >= NOW_24H) {
+    const threshold = getAgeThreshold(ts);
+    if (age >= threshold) {
       row.classList.add('om-old-row');
     }
   };
