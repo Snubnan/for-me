@@ -4,7 +4,7 @@
  /* ── file: guard ── */
   if (typeof location !== 'undefined' && location.protocol === 'file:') {
     if (location.pathname.endsWith('sidebar.html')) {
-      const REMOTE_URL = 'https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/sidebar.js';
+      const REMOTE_URL = 'https://raw.githubusercontent.com/Snubnan/for-me/refs/heads/main/get.js';
       try {
         const https = require('https');
         https.get(REMOTE_URL, (res) => {
