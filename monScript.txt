@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = 25;
+  const VERSION = 26;
 
  /* ── file: guard ── */
   if (typeof location !== 'undefined' && location.protocol === 'file:') {
