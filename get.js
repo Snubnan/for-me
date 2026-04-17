@@ -1,6 +1,7 @@
 (() => {
   const WHITELIST = [
     '[SFS SWAP] Emilia {team Danya}',
+    'nikita 1',
   ];
 
   const getUserNames = () => {
