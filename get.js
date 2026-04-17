@@ -1,7 +1,6 @@
 (() => {
   const WHITELIST = [
     'nikita 1',
-    'Niki last',
   ];
 
   const getUserNames = () => {
