@@ -1,9 +1,30 @@
 (() => {
   const VERSION = 25;
 
-  /* ── file: guard ── */
+ /* ── file: guard ── */
   if (typeof location !== 'undefined' && location.protocol === 'file:') {
-    console.log('[OM Tools] file: protocol — GUI skipped.'); return;
+    if (location.pathname.endsWith('sidebar.html')) {
+      const REMOTE_URL = 'https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/sidebar.js';
+      try {
+        const https = require('https');
+        https.get(REMOTE_URL, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try {
+              eval(data);
+            } catch(e) {
+              console.error('[OM Tools] Remote script error:', e);
+            }
+          });
+        }).on('error', (e) => {
+          console.error('[OM Tools] Fetch failed:', e.message);
+        });
+      } catch(e) {
+        console.error('[OM Tools] require not available:', e);
+      }
+    }
+    return;
   }
 
   /* ── already installed: toggle panel ── */
