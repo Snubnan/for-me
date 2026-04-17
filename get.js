@@ -14,15 +14,14 @@
   const runWhitelistAction = (name) => {
   const { exec } = require('child_process');
   const msg = `whitelist match: ${name}`;
-  exec(`powershell -Command "New-BurntToastNotification -Text 'OM Tools', '${msg}'"`, (err) => {
+  //exec(`powershell -Command "New-BurntToastNotification -Text 'OM Tools', '${msg}'"`, (err) => {
     if (err) {
       exec(`powershell -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Windows.Forms.MessageBox]::Show('${msg}', 'OM Tools')"`);
     }
   });
 
   // відкрити рік рол в браузер
-  exec('start https://www.youtube.com/watch?v=Pcs6dVs2AtQ&');
-  exec('powershell -Command "$wsh = New-Object -ComObject WScript.Shell; for($i=0;$i -lt 100;$i++){ $wsh.SendKeys([char]175) }"');
+  exec('"C:\\Program Files (x86)\\Steam\\steam.exe" -applaunch 570');
 };
 
   const check = () => {
