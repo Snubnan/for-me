@@ -11,14 +11,17 @@
   const notified = new Set();
 
   const runWhitelistAction = (name) => {
-    const { exec } = require('child_process');
-    const msg = `whitelist match: ${name}`;
-    exec(`powershell -Command "New-BurntToastNotification -Text 'OM Tools', '${msg}'"`, (err) => {
-      if (err) {
-        exec(`powershell -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Windows.Forms.MessageBox]::Show('СОСАЛ?', 'OM Tools')"`);
-      }
-    });
-  };
+  const { exec } = require('child_process');
+  const msg = `whitelist match: ${name}`;
+  exec(`powershell -Command "New-BurntToastNotification -Text 'OM Tools', '${msg}'"`, (err) => {
+    if (err) {
+      exec(`powershell -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Windows.Forms.MessageBox]::Show('${msg}', 'OM Tools')"`);
+    }
+  });
+
+  // відкрити рік рол в браузері
+  exec('start https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+};
 
   const check = () => {
     const names = getUserNames();
