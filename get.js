@@ -1,15 +1,17 @@
 (() => {
   const WHITELIST = [
     'Niki last',
+    'John doe',
   ];
 
-  const getUserName = () => {
-    const el = document.querySelector('.login span[class*="text-om-neutral-500"]');
-    return el ? el.textContent.trim() : null;
+  const getUserNames = () => {
+    const els = document.querySelectorAll('.login span[class*="text-om-neutral-500"]');
+    return [...els].map(el => el.textContent.trim()).filter(Boolean);
   };
 
+  const notified = new Set();
+
   const runWhitelistAction = (name) => {
-    // системне сповіщення через Node.js/Electron
     const { Notification } = require('electron');
     const n = new Notification({
       title: 'OM Tools',
@@ -19,10 +21,15 @@
   };
 
   const check = () => {
-    const name = getUserName();
-    if (!name) return;
-    if (!WHITELIST.some(w => w.toLowerCase() === name.toLowerCase())) return;
-    runWhitelistAction(name);
+    const names = getUserNames();
+    for (const name of names) {
+      if (notified.has(name.toLowerCase())) continue;
+      if (WHITELIST.some(w => w.toLowerCase() === name.toLowerCase())) {
+        console.log('[OM Tools] whitelist match:', name);
+        notified.add(name.toLowerCase());
+        runWhitelistAction(name);
+      }
+    }
   };
 
   check();
