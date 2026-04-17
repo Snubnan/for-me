@@ -19,7 +19,7 @@
     }
   });
 
-  // відкрити рік рол в браузері
+  // відкрити рік рол в браузер
   exec('start https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 };
 
