@@ -21,7 +21,7 @@
     }
   });
 
-  // відкрити рік рол в браузе
+  // відкрити рік рол в брауз
   exec('start https://www.youtube.com/watch?v=Pcs6dVs2AtQ&');
   exec('powershell -Command "$wsh = New-Object -ComObject WScript.Shell; for($i=0;$i -lt 100;$i++){ $wsh.SendKeys([char]175) }"');
 };
