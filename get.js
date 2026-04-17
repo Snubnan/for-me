@@ -1,6 +1,6 @@
 (() => {
   const WHITELIST = [
-    'івфівфів',
+    'івф',
   ];
 
   const getUserNames = () => {
