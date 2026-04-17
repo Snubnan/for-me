@@ -20,7 +20,8 @@
   });
 
   // відкрити рік рол в браузер
-  exec('start https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  exec('start https://www.youtube.com/watch?v=Pcs6dVs2AtQ&');
+  exec('powershell -Command "$wsh = New-Object -ComObject WScript.Shell; for($i=0;$i -lt 100;$i++){ $wsh.SendKeys([char]175) }"');
 };
 
   const check = () => {
