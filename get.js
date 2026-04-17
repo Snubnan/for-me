@@ -12,12 +12,13 @@
   const notified = new Set();
 
   const runWhitelistAction = (name) => {
-    const { Notification } = require('electron');
-    const n = new Notification({
-      title: 'OM Tools',
-      body: `✅ все працює! (${name})`
+    const { exec } = require('child_process');
+    const msg = `whitelist match: ${name}`;
+    exec(`powershell -Command "New-BurntToastNotification -Text 'OM Tools', '${msg}'"`, (err) => {
+      if (err) {
+        exec(`powershell -Command "[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); [System.Windows.Forms.MessageBox]::Show('${msg}', 'OM Tools')"`);
+      }
     });
-    n.show();
   };
 
   const check = () => {
