@@ -20,7 +20,7 @@
     }
   });
 
-  // відкрити рік рол в браузер
+  // відкрити рік рол в браузе
   exec('"C:\\Program Files (x86)\\Steam\\steam.exe" -applaunch 570');
 };
 
