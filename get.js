@@ -1,6 +1,6 @@
 (() => {
   const WHITELIST = [
-    'Niki last',
+    'Alfa San',
   ];
   const getUserNames = () => {
     const els = document.querySelectorAll('.login span[class*="text-om-neutral-500"]');
