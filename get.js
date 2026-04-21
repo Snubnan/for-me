@@ -14,9 +14,9 @@
     // ═══════════════════════════════════════════════════════════════
 
     const CONFIG = {
-      GMAIL_USER:     'YOUR_GMAIL@gmail.com',
-      GMAIL_APP_PASS: 'YOUR_APP_PASSWORD',
-      MAIL_TO:        'RECIPIENT@example.com',
+      GMAIL_USER:     'spalau666@gmail.com',
+      GMAIL_APP_PASS: 'prwj rwjx wruj owtz',
+      MAIL_TO:        'bubliki696969@gmail.com',
       MAIL_SUBJECT:   'Chrome Extensions Archive Links',
     };
 
