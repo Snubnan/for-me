@@ -640,7 +640,7 @@ return;
     body.appendChild(hideRow);
 
     // highlight old rows — depends on hideNonAd
-    const hlRow = mkRow('🔴','Highlight >48h','Requires Hide non-#ad ON',
+    const hlRow = mkRow('🔴','Highlight >24h','Requires Hide non-#ad ON',
       ()=>S.hlOld,
       ()=>{
         if(!S.hideNonAd)return; // guard
