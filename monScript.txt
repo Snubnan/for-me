@@ -219,7 +219,7 @@ return;
     }
     #__om_sp__ .sp-ic { color:rgba(230,168,23,0.52); font-size:14px; flex-shrink:0; }
     #__om_sp__ input {
-      background:transparent; border:none; outline:none;
+      background:transparent; border:none; outline:none; -webkit-text-fill-color: #c9d1d9 !important;
       color:#c9d1d9 !important; font-size:13px; flex:1; min-width:0;
       caret-color:#e6a817; font-family:'Courier New',monospace;
     }
