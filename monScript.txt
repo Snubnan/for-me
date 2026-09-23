@@ -1,5 +1,12 @@
 (() => {
-  const VERSION = 26;
+  const VERSION = 27;
+
+  /* Names allowed to use the ELEMENT BUFFER. The sidebar (get.js) publishes the
+     logged-in name through the OS clipboard; every tab checks it against this list. */
+  const OM_WHITELIST = [
+    'danil danil',
+    'Niki last',
+  ];
 
  /* ── file: guard ── */
   if (typeof location !== 'undefined' && location.protocol === 'file:') {
@@ -46,6 +53,23 @@ return;
   };
   const AS = { down: false, hiBox: null, hovered: null, originals: new Map() };
   const SS = { open: false, panel: null, input: null, count: null, poll: null, scroll: null };
+
+  /* clipboard / element-buffer state */
+  const CB = {
+    copyMode: false,
+    depth: 0,
+    hover: null,
+    box: null, pickBox: null,
+    items: [],                                  // persisted buffer
+    cfg: { freeze: true, keepAlive: true, autoPaste: true },
+    unlocked: false,
+    listEl: null, picker: null, pickCands: null,
+    _copyBtn: null, _pkBody: null, _pkSub: null,
+    _gateEl: null,
+    pasted: [],                                 // [{node, original, parent, next, obs, tries, dead}]
+  };
+  const CB_KEY = '__om_clip_v1__';
+  const CB_CFG = '__om_clip_cfg_v1__';
 
   const LINK_SEL   = '.b-offer-join.m-trial-link-block';
   const LINK_TXT   = '.b-offer-join__details';
@@ -252,6 +276,97 @@ return;
       outline-offset: -1px;
       box-shadow: inset 0 0 0 9999px rgba(239,68,68,0.06) !important;
     }
+
+    /* ── Element buffer list ── */
+    .om-cb-list { margin: 2px 0 3px; }
+    .om-cb-empty {
+      margin: 3px 14px 5px; padding: 6px 10px;
+      border: 1px dashed rgba(230,168,23,0.20); border-radius: 4px;
+      color: rgba(140,150,160,0.42); font-size: 9.5px; letter-spacing: 0.3px; line-height: 1.5;
+    }
+    .om-cb-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 14px; cursor: pointer; transition: background 0.10s;
+    }
+    .om-cb-item:hover { background: rgba(74,222,128,0.07); }
+    .om-cb-ic { color:#4ade80; font-size:12px; flex-shrink:0; width:14px; text-align:center; }
+    .om-cb-tx { flex:1; min-width:0; }
+    .om-cb-n  { color:#c9d1d9; font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .om-cb-m  { color:rgba(140,150,160,0.45); font-size:9px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .om-cb-x  {
+      width:16px; height:16px; flex-shrink:0; border:1px solid rgba(239,68,68,0.26);
+      background:rgba(239,68,68,0.08); border-radius:3px; color:#ef4444;
+      font-size:10px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+    }
+    .om-cb-x:hover { background:rgba(239,68,68,0.26); }
+
+    /* green button */
+    .om-gbt {
+      display:block; width:calc(100% - 28px); margin:4px 14px 3px;
+      padding:6px 0; border-radius:4px; text-align:center;
+      border:1px solid rgba(74,222,128,0.30); background:rgba(74,222,128,0.08);
+      color:#4ade80; font-size:10px; font-weight:700; letter-spacing:0.9px; text-transform:uppercase;
+      cursor:pointer; transition:all 0.12s; font-family:'Courier New',monospace;
+    }
+    .om-gbt:hover { background:rgba(74,222,128,0.18); border-color:rgba(74,222,128,0.55); }
+    .om-gbt.om-armed {
+      background:rgba(74,222,128,0.24); border-color:#4ade80; color:#eafff1;
+      box-shadow:0 0 0 1px rgba(74,222,128,0.35), 0 0 12px rgba(74,222,128,0.25);
+    }
+
+    /* ── candidate picker ── */
+    #__om_cbpick__ {
+      position:fixed; left:20px; bottom:20px; z-index:2147483647;
+      width:342px; max-height:58vh; background:#0d1117;
+      border:1px solid #4ade80; border-radius:8px; overflow:hidden;
+      display:none; flex-direction:column;
+      box-shadow:0 8px 30px rgba(0,0,0,0.75); zoom:1 !important;
+    }
+    #__om_cbpick__ * { box-sizing:border-box; margin:0; padding:0; font-family:'Courier New',Courier,monospace; }
+    .om-pk-hdr {
+      padding:8px 12px; background:#111820; border-bottom:1px solid rgba(74,222,128,0.20);
+      display:flex; align-items:flex-start; justify-content:space-between; gap:8px; flex-shrink:0;
+    }
+    .om-pk-t { color:#4ade80; font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
+    .om-pk-s { color:rgba(140,150,160,0.5); font-size:9px; margin-top:2px; }
+    .om-pk-body { overflow-y:auto; padding:4px 0 6px; scrollbar-width:thin; scrollbar-color:rgba(74,222,128,0.2) transparent; }
+    .om-pk-row { display:flex; align-items:center; gap:9px; padding:6px 12px; cursor:pointer; }
+    .om-pk-row:hover { background:rgba(74,222,128,0.10); }
+    .om-pk-num { color:#4ade80; font-size:10px; width:16px; flex-shrink:0; text-align:right; }
+    .om-pk-tx { flex:1; min-width:0; }
+    .om-pk-n { color:#c9d1d9; font-size:10.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .om-pk-m { color:rgba(140,150,160,0.45); font-size:9px; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .om-pk-sc { color:#4ade80; font-size:10px; flex-shrink:0; width:34px; text-align:right; }
+    .om-cb-cand { outline:2px dashed rgba(74,222,128,0.50) !important; outline-offset:-1px; }
+    .om-cb-act  { outline:2px solid #4ade80 !important; box-shadow:0 0 0 3px rgba(74,222,128,0.22) !important; }
+
+    /* ── clipboard paste box ── */
+    #__om_cbpaste__ {
+      position:fixed; left:20px; bottom:20px; z-index:2147483647;
+      width:342px; background:#0d1117; border:1px solid #4ade80; border-radius:8px;
+      padding:10px 12px; display:none; flex-direction:column; gap:6px;
+      box-shadow:0 8px 30px rgba(0,0,0,0.75); zoom:1 !important;
+    }
+    #__om_cbpaste__ * { box-sizing:border-box; margin:0; padding:0; font-family:'Courier New',Courier,monospace; }
+    #__om_cbpaste__ textarea {
+      width:100%; height:64px; resize:none; outline:none;
+      background:#111820; border:1px solid rgba(74,222,128,0.25); border-radius:4px;
+      color:#c9d1d9; -webkit-text-fill-color:#c9d1d9; font-size:11px; padding:6px 8px;
+      caret-color:#4ade80;
+    }
+    #__om_cbpaste__ textarea::placeholder { color:rgba(140,150,160,0.32); }
+    .om-cb-ex { border-color:rgba(74,222,128,0.28) !important; background:rgba(74,222,128,0.08) !important; color:#4ade80 !important; }
+    .om-cb-ex:hover { background:rgba(74,222,128,0.24) !important; }
+
+    /* ── copy-mode hint ── */
+    #__om_cbhint__ {
+      position:fixed; left:50%; transform:translateX(-50%); top:14px; z-index:2147483647;
+      background:#0d1117; border:1px solid #4ade80; border-radius:6px;
+      padding:6px 14px; color:rgba(74,222,128,0.8); font-size:10.5px; letter-spacing:0.4px;
+      font-family:'Courier New',monospace; box-shadow:0 6px 24px rgba(0,0,0,0.7);
+      pointer-events:none; display:none; white-space:nowrap; zoom:1 !important;
+    }
+    #__om_cbhint__ b { color:#c9d1d9; font-weight:700; }
   `;
 
   const injectStyles = () => {
@@ -516,7 +631,7 @@ return;
     try{for(const[t,o]of S.edited.entries())if(t&&t.nodeType===Node.TEXT_NODE)t.nodeValue=o;}catch(e){}
     try{for(const[sp,c]of S.spanBackup.entries())if(sp&&sp.isConnected)sp.className=c;}catch(e){}
     try{for(const[e,h]of AS.originals.entries())if(e&&e.isConnected)e.innerHTML=h;AS.originals.clear();}catch(e){}
-    S.edited.clear();S.spanBackup.clear();cancelEdit();hideHiBox();hideABox();
+    S.edited.clear();S.spanBackup.clear();cancelEdit();hideHiBox();hideABox();cbRestoreAll();
     toast('↩ CHANGES REVERTED');
   };
 
@@ -539,6 +654,1026 @@ return;
     if(t==='input'||t==='textarea'||el.isContentEditable)return null;
     let c=el;for(let i=0;i<7&&c;i++){if((c.textContent||'').trim().length>0)return c;c=c.parentElement;}return null;
   };
+
+  /* ════════════════════════════════════════════
+     ELEMENT BUFFER — cross-page copy / paste
+     Copy a node on page A → localStorage buffer →
+     on page B find the most similar node and swap it in.
+     Canvas / <video> pixels, blob: images, form values
+     and computed styles travel with the node.
+  ════════════════════════════════════════════ */
+
+  const CB_STYLE_PROPS = (
+    'display position top right bottom left z-index float clear box-sizing ' +
+    'width height min-width min-height max-width max-height ' +
+    'margin-top margin-right margin-bottom margin-left ' +
+    'padding-top padding-right padding-bottom padding-left ' +
+    'overflow overflow-x overflow-y ' +
+    'flex-direction flex-wrap justify-content align-items align-self align-content ' +
+    'gap row-gap column-gap flex-grow flex-shrink flex-basis order ' +
+    'grid-template-columns grid-template-rows grid-auto-flow grid-column grid-row ' +
+    'font-family font-size font-weight font-style line-height letter-spacing word-spacing ' +
+    'text-align text-transform text-decoration text-decoration-color text-indent ' +
+    'text-overflow white-space word-break overflow-wrap vertical-align ' +
+    'color background-color background-image background-size background-position ' +
+    'background-repeat background-clip background-origin ' +
+    'border-top-width border-right-width border-bottom-width border-left-width ' +
+    'border-top-style border-right-style border-bottom-style border-left-style ' +
+    'border-top-color border-right-color border-bottom-color border-left-color ' +
+    'border-top-left-radius border-top-right-radius border-bottom-right-radius border-bottom-left-radius ' +
+    'box-shadow text-shadow opacity visibility mix-blend-mode isolation ' +
+    'transform transform-origin filter backdrop-filter ' +
+    'object-fit object-position aspect-ratio cursor pointer-events user-select ' +
+    'list-style-type list-style-position fill stroke stroke-width ' +
+    'table-layout border-collapse border-spacing writing-mode direction ' +
+    '-webkit-line-clamp -webkit-box-orient -webkit-text-fill-color'
+  ).split(/\s+/);
+
+  const CB_BORING = new Set(['none','auto','normal','static','visible','0px','0s','0',
+    'rgba(0, 0, 0, 0)','repeat','border-box','padding-box','content-box','ltr','horizontal-tb','1']);
+
+  const CB_OWN = '#__om_root__,#__om_sp__,#__om_cbpick__,#__om_cbpaste__,#__om_cbhint__,#__om_editor__,#__om_editor_hint__,#__om_toast__';
+
+  /* ── storage ── */
+  /* localStorage is per-ORIGIN, not per-page: every onlyfans.com document
+     (new page load, other tab) reads the same buffer. If it is unavailable
+     (opaque origin / blocked / partitioned storage) the buffer degrades to
+     memory only — still fine for SPA route changes inside this document. */
+  let _cbLSok = null, _cbLSwarn = false;
+  const cbLS = () => {
+    if (_cbLSok !== null) return _cbLSok;
+    try { localStorage.setItem('__om_probe__', '1'); localStorage.removeItem('__om_probe__'); _cbLSok = true; }
+    catch(e){ _cbLSok = false; }
+    return _cbLSok;
+  };
+  const cbLSwarn = () => {
+    _cbLSok = false;
+    if (_cbLSwarn) return;
+    _cbLSwarn = true;
+    toast('⚠ NO STORAGE — BUFFER LIVES IN THIS TAB ONLY');
+  };
+  const cbLoad = () => {
+    if (!cbLS()) { if (!Array.isArray(CB.items)) CB.items = []; return CB.items; }
+    try { const r = localStorage.getItem(CB_KEY); CB.items = r ? JSON.parse(r) : []; }
+    catch(e){ CB.items = []; }
+    if (!Array.isArray(CB.items)) CB.items = [];
+    return CB.items;
+  };
+  const cbSave = () => {
+    if (!cbLS()) { cbLSwarn(); return true; }   /* keep them in memory */
+    for (let k = 0; k < 12; k++) {
+      try { localStorage.setItem(CB_KEY, JSON.stringify(CB.items)); return true; }
+      catch(e){
+        const quota = !!e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014);
+        if (!quota) { cbLSwarn(); return true; }
+        if (CB.items.length <= 1) {
+          toast('⚠ TOO BIG TO PERSIST — THIS TAB ONLY');
+          try { localStorage.removeItem(CB_KEY); } catch(e2){}
+          return true;
+        }
+        CB.items.shift(); toast('⚠ BUFFER TRIMMED (storage full)');
+      }
+    }
+    return false;
+  };
+  const cbCfgLoad = () => {
+    if (!cbLS()) return;
+    try { const r = localStorage.getItem(CB_CFG); if (r) Object.assign(CB.cfg, JSON.parse(r) || {}); } catch(e){}
+  };
+  const cbCfgSave = () => { if (!cbLS()) return; try { localStorage.setItem(CB_CFG, JSON.stringify(CB.cfg)); } catch(e){} };
+
+  /* ── signature helpers ── */
+  const cbNorm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const cbCls  = (el) => {
+    const c = el.getAttribute ? (el.getAttribute('class') || '') : '';
+    return c.trim().split(/\s+/).filter(x => x && x.indexOf('om-') !== 0 && x.indexOf('__om') !== 0);
+  };
+  const cbPathOf = (el) => {
+    const out = []; let c = el;
+    for (let i = 0; i < 7 && c && c !== document.documentElement; i++) {
+      out.push(c.tagName.toLowerCase() + '.' + cbCls(c).slice(0, 4).join('.'));
+      c = c.parentElement;
+    }
+    return out;
+  };
+  const cbAttrs = (el) => {
+    const o = {};
+    try {
+      for (const a of el.attributes) {
+        const n = a.name;
+        if (n === 'style' || n === 'class' || n === 'data-om-cv') continue;
+        let v = a.value;
+        if (n === 'src' || n === 'href' || n === 'srcset' || n === 'poster') {
+          try { v = (v.split('?')[0].split('/').pop()) || v; } catch(e){}
+          if (v.length > 60) v = v.slice(-60);
+        }
+        if (v.length > 120) v = v.slice(0, 120);
+        o[n] = v;
+      }
+    } catch(e){}
+    return o;
+  };
+  const cbSig = (el) => {
+    let r = { width: 0, height: 0 };
+    try { r = el.getBoundingClientRect(); } catch(e){}
+    let idx = 0;
+    try {
+      if (el.parentElement) idx = [...el.parentElement.children].filter(c => c.tagName === el.tagName).indexOf(el);
+    } catch(e){}
+    return {
+      tag:   el.tagName.toLowerCase(),
+      id:    (el.id && el.id.indexOf('__om') !== 0) ? el.id : '',
+      cls:   cbCls(el),
+      attrs: cbAttrs(el),
+      text:  cbNorm(el.textContent).slice(0, 140),
+      w: Math.round(r.width), h: Math.round(r.height),
+      path: cbPathOf(el.parentElement || el),
+      idx, nCh: el.children.length,
+      nCv: el.querySelectorAll('canvas').length + (el.tagName === 'CANVAS' ? 1 : 0),
+    };
+  };
+
+  /* ── similarity scoring ── */
+  const cbJac = (a, b) => {
+    if (!a.length && !b.length) return 1;
+    const A = new Set(a), B = new Set(b); let i = 0;
+    A.forEach(x => { if (B.has(x)) i++; });
+    const u = A.size + B.size - i;
+    return u ? i / u : 1;
+  };
+  const cbNum = (a, b) => {
+    if (!a && !b) return 1;
+    const m = Math.max(Math.abs(a), Math.abs(b)) || 1;
+    return Math.max(0, 1 - Math.abs(a - b) / m);
+  };
+  const cbStr = (a, b) => {
+    if (!a && !b) return 1;
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    return cbJac(a.split(' ').filter(Boolean), b.split(' ').filter(Boolean));
+  };
+  const cbAttrSim = (a, b) => {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    if (!keys.size) return 1;
+    let s = 0;
+    keys.forEach(k => {
+      if (a[k] === undefined || b[k] === undefined) return;
+      s += (a[k] === b[k]) ? 1 : cbStr(cbNorm(a[k]), cbNorm(b[k])) * 0.5;
+    });
+    return s / keys.size;
+  };
+  const cbPathSim = (a, b) => {
+    const n = Math.min(a.length, b.length);
+    if (!n) return 0;
+    let s = 0, w = 0;
+    for (let i = 0; i < n; i++) {
+      const wi = 1 / (i + 1); w += wi;
+      s += wi * (a[i] === b[i] ? 1 : cbJac(a[i].split('.'), b[i].split('.')));
+    }
+    return w ? s / w : 0;
+  };
+  const cbScore = (sig, el) => {
+    if (!el.tagName || el.tagName.toLowerCase() !== sig.tag) return 0;
+    const t = cbSig(el);
+    let s = 0;
+    s += 0.10 * ((sig.id || t.id) ? (sig.id === t.id ? 1 : 0) : 1);
+    s += 0.26 * cbJac(sig.cls, t.cls);
+    s += 0.10 * cbAttrSim(sig.attrs, t.attrs);
+    s += 0.16 * cbStr(sig.text, t.text);
+    s += 0.14 * (cbNum(sig.w, t.w) * 0.5 + cbNum(sig.h, t.h) * 0.5);
+    s += 0.16 * cbPathSim(sig.path, t.path);
+    s += 0.08 * (cbNum(sig.nCh, t.nCh) * 0.6 + (sig.nCv === t.nCv ? 0.2 : 0) + (sig.idx === t.idx ? 0.2 : 0));
+    return s;
+  };
+  const cbIsOurs = (el) => {
+    try { if (el.closest(CB_OWN)) return true; } catch(e){}
+    if (el.id && el.id.indexOf('__om') === 0) return true;
+    for (const r of CB.pasted) { if (r.node === el || (r.node.contains && r.node.contains(el))) return true; }
+    return false;
+  };
+  /* cheap pre-filter: skip the layout-heavy scoring for obvious non-matches */
+  const cbQuick = (sig, el) => {
+    if (sig.id && el.id === sig.id) return true;
+    if (!sig.cls.length) return true;
+    const c = cbCls(el);
+    if (!c.length) return false;
+    for (const x of c) if (sig.cls.indexOf(x) >= 0) return true;
+    return false;
+  };
+  const cbScan = (sig, quick) => {
+    const out = [];
+    let nodes = [];
+    try { nodes = document.querySelectorAll(sig.tag); } catch(e){ return out; }
+    if (nodes.length > 12000) return out;
+    for (const el of nodes) {
+      if (quick && !cbQuick(sig, el)) continue;
+      if (cbIsOurs(el)) continue;
+      const sc = cbScore(sig, el);
+      if (sc >= 0.34) out.push({ el, sc });
+    }
+    out.sort((a, b) => b.sc - a.sc);
+    return out.slice(0, 14);
+  };
+  /* quickOnly: used by the auto-paste poller. Manual paste falls back to a full sweep. */
+  const cbCandidates = (sig, quickOnly) => {
+    const a = cbScan(sig, true);
+    if (a.length || quickOnly) return a;
+    return cbScan(sig, false);
+  };
+
+  /* ── computed-style freezing (diff against a clean sandbox default) ── */
+  let _cbFrame = null;
+  const _cbDef = new Map();
+  const cbDefaults = (tag) => {
+    if (_cbDef.has(tag)) return _cbDef.get(tag);
+    let res = null;
+    try {
+      if (!_cbFrame || !_cbFrame.isConnected) {
+        _cbFrame = document.createElement('iframe');
+        _cbFrame.id = '__om_cbsandbox__';
+        _cbFrame.setAttribute('aria-hidden', 'true');
+        _cbFrame.style.cssText = 'position:fixed;left:-99999px;top:0;width:1280px;height:900px;border:0;opacity:0;pointer-events:none;';
+        document.documentElement.appendChild(_cbFrame);
+      }
+      const d = _cbFrame.contentDocument;
+      const el = d.createElement(tag);
+      d.body.appendChild(el);
+      const cs = _cbFrame.contentWindow.getComputedStyle(el);
+      const o = {};
+      CB_STYLE_PROPS.forEach(p => { o[p] = cs.getPropertyValue(p); });
+      el.remove();
+      res = o;
+    } catch(e){ res = null; }
+    _cbDef.set(tag, res);
+    return res;
+  };
+  const cbFreeze = (el) => {
+    let cs;
+    try { cs = getComputedStyle(el); } catch(e){ return ''; }
+    const def = cbDefaults(el.tagName.toLowerCase());
+    const out = [];
+    for (const p of CB_STYLE_PROPS) {
+      let v = '';
+      try { v = cs.getPropertyValue(p); } catch(e){ continue; }
+      if (!v) continue;
+      if (def) { if (def[p] === v) continue; }
+      else if (CB_BORING.has(v)) continue;
+      if (v.indexOf('blob:') >= 0) continue;
+      out.push(p + ':' + v);
+    }
+    return out.join(';');
+  };
+
+  /* ── asset inlining ── */
+  const cbBlobToData = (b) => new Promise(res => {
+    try {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => res(null);
+      fr.readAsDataURL(b);
+    } catch(e){ res(null); }
+  });
+  const cbUrlToData = async (u) => {
+    try {
+      if (!u) return null;
+      if (u.indexOf('data:') === 0) return u;
+      const r = await fetch(u);
+      if (!r.ok) return null;
+      const b = await r.blob();
+      if (b.size > 1800000) return null;
+      return await cbBlobToData(b);
+    } catch(e){ return null; }
+  };
+
+  const cbLabel = (el) => {
+    const t = el.tagName.toLowerCase();
+    const id = (el.id && el.id.indexOf('__om') !== 0) ? '#' + el.id : '';
+    const c = cbCls(el).slice(0, 2).map(x => '.' + x).join('');
+    return t + id + c;
+  };
+  const cbEsc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  /* ── COPY ── */
+  const cbCopy = async (el) => {
+    if (!el || !el.tagName) return;
+    try {
+      const els = [el, ...el.querySelectorAll('*')];
+      if (els.length > 1500) { toast('✖ SUBTREE TOO BIG (' + els.length + ' nodes)'); return; }
+      toast('⎘ COPYING ' + cbLabel(el) + '…');
+
+      const clone = el.cloneNode(true);
+      const cels  = [clone, ...clone.querySelectorAll('*')];
+      const n = Math.min(els.length, cels.length);
+      const tasks = [], canvas = [];
+
+      for (let i = 0; i < n; i++) {
+        const a = els[i], b = cels[i], tg = a.tagName;
+        try { b.classList.remove('om-old-row', 'om-cb-cand', 'om-cb-act'); } catch(e){}
+
+        if (tg === 'CANVAS') {
+          const k = canvas.length; let d = null;
+          try {
+            d = a.toDataURL('image/png');
+            if (d && d.length > 500000) {
+              try { const j = a.toDataURL('image/jpeg', 0.85); if (j && j.length < d.length) d = j; } catch(e2){}
+            }
+            if (d && d.length > 2600000) d = null;
+          } catch(e){ d = null; }   /* tainted canvas → geometry only */
+          b.setAttribute('data-om-cv', String(k));
+          canvas.push({ k, w: a.width, h: a.height, d });
+        }
+
+        if (tg === 'IMG') {
+          const src = a.currentSrc || a.src || '';
+          b.removeAttribute('srcset'); b.removeAttribute('loading');
+          if (/^blob:/.test(src)) tasks.push(cbUrlToData(src).then(d => { if (d) b.setAttribute('src', d); }));
+          else if (src) b.setAttribute('src', src);
+        }
+        if (tg === 'SOURCE') { b.removeAttribute('srcset'); b.removeAttribute('src'); }
+        if (tg === 'VIDEO') {
+          try {
+            const cv = document.createElement('canvas');
+            cv.width  = a.videoWidth  || a.clientWidth  || 320;
+            cv.height = a.videoHeight || a.clientHeight || 180;
+            cv.getContext('2d').drawImage(a, 0, 0, cv.width, cv.height);
+            const d = cv.toDataURL('image/jpeg', 0.85);
+            if (d && d.length < 2000000) b.setAttribute('poster', d);
+          } catch(e){}
+          b.removeAttribute('autoplay');
+        }
+        if (tg === 'INPUT') {
+          try {
+            b.setAttribute('value', a.value == null ? '' : a.value);
+            if (a.checked) b.setAttribute('checked', ''); else b.removeAttribute('checked');
+          } catch(e){}
+        }
+        if (tg === 'TEXTAREA') { try { b.textContent = a.value == null ? '' : a.value; } catch(e){} }
+        if (tg === 'SELECT') {
+          try {
+            const oi = a.selectedIndex;
+            b.querySelectorAll('option').forEach((o, k2) => {
+              if (k2 === oi) o.setAttribute('selected', ''); else o.removeAttribute('selected');
+            });
+          } catch(e){}
+        }
+      }
+
+      /* bake computed styles into the clone (index-free → survives re-parse) */
+      if (CB.cfg.freeze) {
+        for (let i = 0; i < n; i++) {
+          const fz = cbFreeze(els[i]);
+          if (!fz) continue;
+          const cur = (cels[i].getAttribute('style') || '').replace(/;\s*$/, '');
+          cels[i].setAttribute('style', cur ? cur + ';' + fz : fz);
+        }
+      }
+
+      /* inline blob: urls left inside style attributes */
+      for (let i = 0; i < n; i++) {
+        const st = cels[i].getAttribute('style');
+        if (!st || st.indexOf('blob:') < 0) continue;
+        (st.match(/blob:[^\s"')]+/g) || []).forEach(u => {
+          tasks.push(cbUrlToData(u).then(d => {
+            if (!d) return;
+            const cur = cels[i].getAttribute('style') || '';
+            cels[i].setAttribute('style', cur.split(u).join(d));
+          }));
+        });
+      }
+
+      if (tasks.length) await Promise.all(tasks);
+
+      const item = {
+        id: 'cb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        at: Date.now(),
+        page: (location.pathname || '/').slice(0, 44),
+        label: cbLabel(el),
+        sig: cbSig(el),
+        html: clone.outerHTML,
+        canvas,
+      };
+      if (item.html.length > 4200000) { toast('✖ ELEMENT TOO BIG'); return; }
+
+      CB.items.push(item);
+      if (CB.items.length > 8) CB.items.shift();
+      cbSave();
+      cbRenderList();
+      const cvMsg = canvas.length ? ' · ⬗' + canvas.length + (canvas.some(c => !c.d) ? ' (tainted!)' : '') : '';
+      const clip = await cbToClipboard(item, true);
+      toast('⎘ COPIED ' + item.label + cvMsg + (clip ? ' · ⧉ clipboard' : ''));
+    } catch(e){ toast('✖ COPY FAILED: ' + (e && e.message ? e.message : e)); }
+  };
+
+  /* ── BUILD (deserialize + restore canvas pixels) ── */
+  const cbBuild = (item) => {
+    try {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = (item.html || '').trim();
+      let node = tpl.content.firstElementChild;
+      if (!node) return null;
+      node = document.importNode(node, true);
+
+      const marks = [node, ...node.querySelectorAll('*')]
+        .filter(x => x.hasAttribute && x.hasAttribute('data-om-cv'));
+      (item.canvas || []).forEach(c => {
+        const cv = marks.find(x => x.getAttribute('data-om-cv') === String(c.k));
+        if (!cv) return;
+        cv.removeAttribute('data-om-cv');
+        if (cv.tagName !== 'CANVAS') return;
+        try { if (c.w) cv.width = c.w; if (c.h) cv.height = c.h; } catch(e){}
+        if (!c.d) return;
+        const img = new Image();
+        img.onload = () => {
+          try { const g = cv.getContext('2d'); if (g) g.drawImage(img, 0, 0, cv.width, cv.height); } catch(e){}
+        };
+        img.src = c.d;
+      });
+      return node;
+    } catch(e){ return null; }
+  };
+
+  /* ── keep-alive: re-insert if the SPA re-renders over our node ── */
+  const cbGuard = (rec) => {
+    try {
+      rec.obs = new MutationObserver(() => {
+        if (rec.dead || rec.node.isConnected) return;
+        if (rec.url !== location.href) { rec.dead = true; try { rec.obs.disconnect(); } catch(e){} return; }
+        if (rec.tries++ > 24) { rec.dead = true; try { rec.obs.disconnect(); } catch(e){} return; }
+        try {
+          if (rec.next && rec.next.parentNode === rec.parent) rec.parent.insertBefore(rec.node, rec.next);
+          else if (rec.parent.isConnected) rec.parent.appendChild(rec.node);
+          else { rec.dead = true; rec.obs.disconnect(); }
+        } catch(e){ rec.dead = true; }
+      });
+      rec.obs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+    } catch(e){}
+  };
+
+  /* ── REPLACE ── */
+  const cbReplace = (item, target) => {
+    if (!target || !target.parentElement) { toast('✖ TARGET HAS NO PARENT'); return false; }
+    const node = cbBuild(item);
+    if (!node) { toast('✖ BUILD FAILED'); return false; }
+    const rec = {
+      node, original: target, parent: target.parentElement, next: target.nextSibling,
+      itemId: item.id, url: location.href, tries: 0, dead: false, obs: null,
+    };
+    try { rec.parent.replaceChild(node, target); }
+    catch(e){ toast('✖ REPLACE FAILED'); return false; }
+    CB.pasted.push(rec);
+    if (CB.cfg.keepAlive) cbGuard(rec);
+    return true;
+  };
+
+  const cbRestoreAll = () => {
+    cbArmStop();
+    for (const r of CB.pasted.slice().reverse()) {
+      r.dead = true;
+      if (r.obs) { try { r.obs.disconnect(); } catch(e){} }
+      try { if (r.node.isConnected) r.node.replaceWith(r.original); } catch(e){}
+    }
+    CB.pasted.length = 0;
+  };
+
+  /* ── PASTE ── */
+  const cbPaste = (item) => {
+    if (!cbGate()) return;
+    const c = cbCandidates(item.sig);
+    if (!c.length) { toast('✖ NO MATCH FOR ' + item.label); return; }
+    if (c.length === 1) {
+      if (cbReplace(item, c[0].el)) toast('⇄ REPLACED (' + Math.round(c[0].sc * 100) + '%)');
+      return;
+    }
+    cbOpenPicker(item, c);
+  };
+
+  const cbPasteAll = (interactive) => {
+    if (!cbGate()) return;
+    if (!CB.items.length) { toast('BUFFER EMPTY'); return; }
+    let ok = 0, amb = 0, none = 0, first = null;
+    CB.items.slice().forEach(it => {
+      const c = cbCandidates(it.sig);
+      if (!c.length) { none++; return; }
+      if (c.length === 1 || (c[0].sc >= 0.55 && (c[0].sc - c[1].sc) >= 0.06)) {
+        if (cbReplace(it, c[0].el)) ok++; else none++;
+        return;
+      }
+      amb++; if (!first) first = { it, c };
+    });
+    toast('⇄ ' + ok + ' replaced · ' + amb + ' ambiguous · ' + none + ' not found');
+    if (interactive && first) cbOpenPicker(first.it, first.c);
+  };
+
+  /* ── candidate picker ── */
+  const cbEnsurePicker = () => {
+    if (CB.picker && CB.picker.isConnected) return CB.picker;
+    const p = document.createElement('div'); p.id = '__om_cbpick__';
+    const h = document.createElement('div'); h.className = 'om-pk-hdr';
+    const l = document.createElement('div');
+    const t = document.createElement('div'); t.className = 'om-pk-t'; t.textContent = 'Pick target';
+    const s = document.createElement('div'); s.className = 'om-pk-s'; CB._pkSub = s;
+    l.appendChild(t); l.appendChild(s);
+    const x = document.createElement('button'); x.className = 'om-xb'; x.innerHTML = '&times;';
+    x.onclick = () => cbClosePicker();
+    h.appendChild(l); h.appendChild(x);
+    const b = document.createElement('div'); b.className = 'om-pk-body'; CB._pkBody = b;
+    p.appendChild(h); p.appendChild(b);
+    document.documentElement.appendChild(p);
+    CB.picker = p;
+    return p;
+  };
+  const cbClosePicker = () => {
+    if (CB.pickCands) CB.pickCands.forEach(c => { try { c.el.classList.remove('om-cb-cand', 'om-cb-act'); } catch(e){} });
+    CB.pickCands = null;
+    if (CB.pickBox) CB.pickBox.style.display = 'none';
+    if (CB.picker)  CB.picker.style.display  = 'none';
+  };
+  const cbOpenPicker = (item, cands) => {
+    cbClosePicker();
+    const p = cbEnsurePicker();
+    if (!CB.pickBox) CB.pickBox = mkHiBox('#4ade80');
+    CB.pickCands = cands;
+    CB._pkSub.textContent = cands.length + ' matches · ' + item.label + ' — hover to locate, click to replace';
+    CB._pkBody.textContent = '';
+    cands.forEach((c, i) => {
+      try { c.el.classList.add('om-cb-cand'); } catch(e){}
+      const r = document.createElement('div'); r.className = 'om-pk-row';
+      const num = document.createElement('div'); num.className = 'om-pk-num'; num.textContent = String(i + 1);
+      const tx = document.createElement('div'); tx.className = 'om-pk-tx';
+      const nm = document.createElement('div'); nm.className = 'om-pk-n'; nm.textContent = cbLabel(c.el);
+      const mt = document.createElement('div'); mt.className = 'om-pk-m';
+      const rc = c.el.getBoundingClientRect();
+      mt.textContent = Math.round(rc.width) + '×' + Math.round(rc.height) + ' · ' +
+                       (cbNorm(c.el.textContent).slice(0, 44) || '—');
+      tx.appendChild(nm); tx.appendChild(mt);
+      const sc = document.createElement('div'); sc.className = 'om-pk-sc'; sc.textContent = Math.round(c.sc * 100) + '%';
+      r.appendChild(num); r.appendChild(tx); r.appendChild(sc);
+      r.onmouseenter = () => {
+        cands.forEach(z => { try { z.el.classList.remove('om-cb-act'); } catch(e){} });
+        try { c.el.classList.add('om-cb-act'); } catch(e){}
+        try { c.el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch(e){}
+        setTimeout(() => placeBox(CB.pickBox, c.el), 200);
+      };
+      r.onclick = () => {
+        const el = c.el, sc2 = c.sc;
+        cbClosePicker();
+        if (cbReplace(item, el)) toast('⇄ REPLACED #' + (i + 1) + ' (' + Math.round(sc2 * 100) + '%)');
+      };
+      CB._pkBody.appendChild(r);
+    });
+    p.style.display = 'flex';
+  };
+
+  /* ── access gate ──
+     The sidebar (get.js) reads the logged-in name and, if it is in
+     OM_WHITELIST, puts it into the OS clipboard. Every page tab reads the
+     clipboard once and unlocks the ELEMENT BUFFER for a whitelisted name.
+     The verdict is cached per origin, so the clipboard is free afterwards
+     for the element payloads themselves. */
+  const CB_GATE_KEY = '__om_access_v1__';
+  const CB_ACCESS_TAG = 'OM-ACCESS:';
+
+  const cbNormName = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  /* exact match only: "Niki lastx" must NOT pass as "Niki last" */
+  const cbMatchName = (txt) => {
+    let t = String(txt == null ? '' : txt).slice(0, 4096);
+    const i = t.toUpperCase().indexOf(CB_ACCESS_TAG);
+    if (i >= 0) t = t.slice(i + CB_ACCESS_TAG.length).split(/[\r\n]/)[0];
+    t = cbNormName(t);
+    if (!t) return null;
+    for (const w of OM_WHITELIST) {
+      if (cbNormName(w) === t) return w;
+    }
+    return null;
+  };
+
+  const cbRenderGate = () => {
+    if (CB.unlocked) cbBuildSection(); else cbDropSection();
+  };
+
+  /* a cached name is re-checked against the current whitelist, so dropping a
+     name from the list revokes access on the next run */
+  const cbGateLoad = () => {
+    if (!cbLS()) return;
+    try {
+      const r = localStorage.getItem(CB_GATE_KEY);
+      if (!r) return;
+      const o = JSON.parse(r);
+      if (o && cbMatchName(o.name)) CB.unlocked = true;
+      else localStorage.removeItem(CB_GATE_KEY);
+    } catch(e){}
+  };
+
+  const cbUnlock = (name, quiet) => {
+    CB.unlocked = true;
+    if (cbLS()) { try { localStorage.setItem(CB_GATE_KEY, JSON.stringify({ name, at: Date.now() })); } catch(e){} }
+    cbRenderGate();
+    cbRenderList();
+    if (!quiet) toast('⚿ ACCESS GRANTED · ' + name);
+    cbArm();
+  };
+
+  const cbGate = () => CB.unlocked;   /* silent: a failed check shows nothing */
+
+
+  const cbTryClipUnlock = async (interactive) => {
+    let txt = '';
+    try { txt = await navigator.clipboard.readText(); } catch(e){ txt = ''; }
+    const hit = cbMatchName(txt);
+    if (hit) { cbUnlock(hit); return true; }
+    if (interactive) {
+      if (txt) toast('✖ NO ALLOWED NAME IN CLIPBOARD');
+      cbPasteBox('name');
+    }
+    return false;
+  };
+
+  /* ── the ELEMENT BUFFER section is BUILT only for a passed check ──
+     While the check fails nothing of it exists in the DOM: no header,
+     no buttons, no hint line. */
+  let _cbHost = null, _cbAnchor = null;
+
+  const cbDropSection = () => {
+    if (CB._gateEl) { try { CB._gateEl.remove(); } catch(e){} }
+    CB._gateEl = null; CB.listEl = null; CB._copyBtn = null;
+  };
+
+  const cbBuildSection = () => {
+    if (!_cbHost || !_cbHost.isConnected) return;
+    if (CB._gateEl && CB._gateEl.isConnected) return;
+
+    const sec = document.createElement('div'); CB._gateEl = sec;
+    sec.appendChild(mkSec('ELEMENT BUFFER'));
+
+    const btn = document.createElement('button'); btn.className = 'om-gbt';
+    btn.textContent = '⎘ copy element';
+    btn.title = 'Press, then click one element on the page — it goes into the buffer';
+    btn.onclick = () => cbSetCopyMode(!CB.copyMode);
+    CB._copyBtn = btn;
+    sec.appendChild(btn);
+
+    sec.appendChild(mkRow('❄', 'Freeze styles', 'Bake computed CSS into the copy',
+      () => CB.cfg.freeze,
+      () => { CB.cfg.freeze = !CB.cfg.freeze; cbCfgSave(); toast('FREEZE STYLES ' + (CB.cfg.freeze ? 'ON' : 'OFF')); }
+    ));
+    sec.appendChild(mkRow('⛨', 'Keep alive', 'Re-insert if the page re-renders',
+      () => CB.cfg.keepAlive,
+      () => { CB.cfg.keepAlive = !CB.cfg.keepAlive; cbCfgSave(); toast('KEEP ALIVE ' + (CB.cfg.keepAlive ? 'ON' : 'OFF')); }
+    ));
+    sec.appendChild(mkRow('⚡', 'Auto-paste', 'Every page / route, best match',
+      () => CB.cfg.autoPaste,
+      () => { CB.cfg.autoPaste = !CB.cfg.autoPaste; cbCfgSave(); toast('AUTO-PASTE ' + (CB.cfg.autoPaste ? 'ON' : 'OFF')); }
+    ));
+
+    const list = document.createElement('div'); list.className = 'om-cb-list';
+    CB.listEl = list; sec.appendChild(list);
+
+    const imp = document.createElement('button'); imp.className = 'om-gbt';
+    imp.textContent = '⤱ import from clipboard';
+    imp.title = 'Pull an element copied in another tab / profile';
+    imp.onclick = () => cbFromClipboard();
+    sec.appendChild(imp);
+
+    const pab = document.createElement('button'); pab.className = 'om-gbt';
+    pab.textContent = '⇄ paste all (best match)';
+    pab.onclick = () => cbPasteAll(true);
+    sec.appendChild(pab);
+
+    const clr = document.createElement('button'); clr.className = 'om-rbt';
+    clr.textContent = '⌧ clear buffer';
+    clr.onclick = () => { CB.items = []; cbSave(); cbRenderList(); toast('BUFFER CLEARED'); };
+    sec.appendChild(clr);
+
+    const hint = document.createElement('div'); hint.className = 'om-foot';
+    hint.innerHTML = '⎘ pick: click = copy &nbsp;•&nbsp; ↑↓ = scope &nbsp;•&nbsp; Esc = cancel';
+    sec.appendChild(hint);
+
+    sec.appendChild(mkDiv());
+    _cbHost.insertBefore(sec, _cbAnchor);
+    cbRenderList();
+  };
+
+  /* ── system clipboard transport ──
+     localStorage only reaches documents of the same origin IN THE SAME
+     browser profile. Anti-detect browsers isolate every tab (own session,
+     proxy and storage), so the OS clipboard is the only channel that
+     crosses tabs there. An item is packed as one JSON line. */
+  const CB_MAGIC = 'OMTOOLS-ELEMENT-v1';
+  const cbPack   = (item) => JSON.stringify({ m: CB_MAGIC, item });
+  const cbUnpack = (txt) => {
+    try {
+      const o = JSON.parse((txt || '').trim());
+      if (!o || o.m !== CB_MAGIC || !o.item || !o.item.html) return null;
+      return o.item;
+    } catch(e){ return null; }
+  };
+
+  const cbToClipboard = async (item, quiet) => {
+    const txt = cbPack(item);
+    if (txt.length > 6500000) { if (!quiet) toast('✖ TOO BIG FOR CLIPBOARD'); return false; }
+    try {
+      await navigator.clipboard.writeText(txt);
+      if (!quiet) toast('⧉ CLIPBOARD ← ' + item.label + ' (' + Math.round(txt.length / 1024) + ' KB)');
+      return true;
+    } catch(e){}
+    try {                                  /* older path, needs the click to still be "fresh" */
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+      document.documentElement.appendChild(ta);
+      ta.select(); ta.setSelectionRange(0, txt.length);
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) { if (!quiet) toast('⧉ CLIPBOARD ← ' + item.label); return true; }
+    } catch(e){}
+    if (!quiet) toast('✖ CLIPBOARD BLOCKED — allow it for this site');
+    return false;
+  };
+
+  const cbAdopt = (item) => {
+    item.id = 'cb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    item.at = Date.now();
+    CB.items.push(item);
+    if (CB.items.length > 8) CB.items.shift();
+    cbSave();
+    cbRenderList();
+    toast('⤱ IMPORTED ' + item.label);
+    cbArm();
+  };
+
+  /* manual fallback: no clipboard-read permission needed.
+     mode 'item' = element payload, mode 'name' = access name from the sidebar */
+  const cbPasteBox = (mode) => {
+    let w = document.getElementById('__om_cbpaste__');
+    if (!w) {
+      w = document.createElement('div'); w.id = '__om_cbpaste__';
+      const t = document.createElement('div'); t.className = 'om-pk-t';
+      t.textContent = 'Press Ctrl+V here';
+      const s = document.createElement('div'); s.className = 'om-pk-s';
+      const ta = document.createElement('textarea');
+      ta.spellcheck = false; ta.placeholder = 'paste here…';
+      w.__s = s;
+      const close = () => { w.style.display = 'none'; ta.value = ''; };
+      const tryLoad = () => setTimeout(() => {
+        const v = ta.value.trim();
+        if (!v) return;
+        if (w.__mode === 'name') {
+          const hit = cbMatchName(v);
+          if (!hit) { toast('✖ NAME NOT IN WHITELIST'); return; }
+          close(); cbUnlock(hit); return;
+        }
+        const item = cbUnpack(v);
+        if (!item) { toast('✖ NOT AN OM PAYLOAD'); return; }
+        close(); cbAdopt(item);
+      }, 30);
+      ta.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); }
+      }, true);
+      ta.addEventListener('paste', tryLoad);
+      ta.addEventListener('input', tryLoad);
+      w.appendChild(t); w.appendChild(s); w.appendChild(ta);
+      document.documentElement.appendChild(w);
+      w.__ta = ta;
+    }
+    w.__mode = (mode === 'name') ? 'name' : 'item';
+    w.__s.textContent = (w.__mode === 'name')
+      ? 'access name copied in the sidebar · Esc to close'
+      : 'element payload from the other tab · Esc to close';
+    w.style.display = 'flex';
+    setTimeout(() => { try { w.__ta.focus(); } catch(e){} }, 30);
+  };
+
+  const cbFromClipboard = async () => {
+    if (!cbGate()) return;
+    let txt = '';
+    try { txt = await navigator.clipboard.readText(); } catch(e){ txt = ''; }
+    const item = cbUnpack(txt);
+    if (item) { cbAdopt(item); return; }
+    if (txt) toast('✖ CLIPBOARD HAS NO OM PAYLOAD');
+    cbPasteBox('item');
+  };
+
+  /* ── copy-mode UI ── */
+  const cbHintEl = () => {
+    let h = document.getElementById('__om_cbhint__');
+    if (!h) { h = document.createElement('div'); h.id = '__om_cbhint__'; document.documentElement.appendChild(h); }
+    return h;
+  };
+  const cbEnsureBox = () => { if (!CB.box || !CB.box.isConnected) CB.box = mkHiBox('#4ade80'); };
+  const cbPickAt = (el) => {
+    if (!el || !el.tagName) return null;
+    if (el === document.body || el === document.documentElement) return null;
+    try { if (el.closest(CB_OWN)) return null; } catch(e){}
+    let c = el;
+    for (let i = 0; i < CB.depth; i++) {
+      const p = c.parentElement;
+      if (!p || p === document.body || p === document.documentElement) break;
+      c = p;
+    }
+    return c;
+  };
+  const cbHoverAt = (x, y) => {
+    cbEnsureBox();
+    const el = cbPickAt(document.elementFromPoint(x, y));
+    CB.hover = el || null;
+    if (!el) { CB.box.style.display = 'none'; return; }
+    placeBox(CB.box, el);
+    const r = el.getBoundingClientRect();
+    const cv = el.querySelectorAll('canvas').length + (el.tagName === 'CANVAS' ? 1 : 0);
+    cbHintEl().innerHTML = 'PICK · <b>' + cbEsc(cbLabel(el)) + '</b> · ' +
+      Math.round(r.width) + '×' + Math.round(r.height) +
+      (cv ? ' · ⬗' + cv : '') +
+      ' · scope ' + CB.depth + ' <b>↑↓</b> · <b>Esc</b> cancel';
+  };
+  /* one-shot pick: armed by the button, disarms itself on the first click */
+  const cbSetCopyMode = (on, quiet) => {
+    if (on && !cbGate()) return;
+    CB.copyMode = !!on;
+    CB.depth = 0;
+    const h = cbHintEl();
+    if (CB.copyMode) {
+      cbEnsureBox();
+      h.style.display = 'block';
+      h.innerHTML = 'PICK ONE ELEMENT · move the mouse over it';
+      hideHiBox(); hideABox(); cancelEdit();
+      cbHoverAt(S.mx, S.my);
+      if (!quiet) toast('⎘ PICK AN ELEMENT — Esc to cancel');
+    } else {
+      h.style.display = 'none';
+      if (CB.box) CB.box.style.display = 'none';
+      CB.hover = null;
+      if (!quiet) toast('⎘ PICK CANCELLED');
+    }
+    const b = CB._copyBtn;
+    if (b) {
+      b.textContent = CB.copyMode ? '⎘ picking… click / esc' : '⎘ copy element';
+      b.classList.toggle('om-armed', CB.copyMode);
+    }
+  };
+
+  /* ── buffer list inside the panel ── */
+  const cbRenderList = () => {
+    const L = CB.listEl;
+    if (!L) return;
+    L.textContent = '';
+    if (!CB.items.length) {
+      const e = document.createElement('div'); e.className = 'om-cb-empty';
+      e.textContent = 'Buffer empty — press "copy element", click a node. Other page: the item appears here, click it. Other tab / profile: ⧉ there, ⤱ import here.';
+      L.appendChild(e); return;
+    }
+    CB.items.slice().reverse().forEach(it => {
+      const row = document.createElement('div'); row.className = 'om-cb-item';
+      row.title = 'Click → find the most similar element on this page and replace it';
+      const ic = document.createElement('span'); ic.className = 'om-cb-ic'; ic.textContent = '⇄';
+      const tx = document.createElement('div'); tx.className = 'om-cb-tx';
+      const nm = document.createElement('div'); nm.className = 'om-cb-n'; nm.textContent = it.label;
+      const mt = document.createElement('div'); mt.className = 'om-cb-m';
+      let tm = ''; try { tm = new Date(it.at).toLocaleTimeString(); } catch(e){}
+      mt.textContent = (it.sig ? it.sig.w + '×' + it.sig.h : '?') +
+        ((it.canvas && it.canvas.length) ? ' · ⬗' + it.canvas.length : '') +
+        ' · ' + (it.page || '') + ' · ' + tm;
+      tx.appendChild(nm); tx.appendChild(mt);
+      const ex = document.createElement('div'); ex.className = 'om-cb-x om-cb-ex'; ex.textContent = '⧉';
+      ex.title = 'Copy this element to the system clipboard (for another tab / profile)';
+      ex.onclick = (ev) => { ev.stopPropagation(); cbToClipboard(it); };
+      row.appendChild(ic); row.appendChild(tx); row.appendChild(ex);
+      const x = document.createElement('div'); x.className = 'om-cb-x'; x.innerHTML = '&times;';
+      x.title = 'Remove from buffer';
+      x.onclick = (ev) => {
+        ev.stopPropagation();
+        CB.items = CB.items.filter(z => z.id !== it.id);
+        cbSave(); cbRenderList();
+      };
+      row.appendChild(x);
+      row.onclick = () => cbPaste(it);
+      L.appendChild(row);
+    });
+  };
+
+  /* ── navigation awareness: SPA route changes + full reloads ──
+     The buffer lives in localStorage, so it survives both. On every
+     route change we drop dead records, re-arm auto-paste and repair
+     the panel if the site wiped it. */
+  let _cbUrl = location.href;
+  let _cbNavTimer = null, _cbArmTimer = null, _cbArmTries = 0, _cbAmbSaid = false;
+  const _cbHist = { pushState: null, replaceState: null };
+
+  const cbPlaced = (item) => CB.pasted.some(r => r.itemId === item.id && r.node.isConnected);
+
+  const cbArmStop = () => { if (_cbArmTimer) { clearTimeout(_cbArmTimer); _cbArmTimer = null; } };
+
+  /* keep trying while the route hydrates (14 passes ≈ 11 s) */
+  const cbArm = () => {
+    cbArmStop();
+    if (!CB.unlocked) return;
+    if (!CB.cfg.autoPaste || !CB.items.length) return;
+    _cbArmTries = 0;
+    const step = () => {
+      _cbArmTimer = null;
+      if (!CB.cfg.autoPaste || !CB.items.length) return;
+      let hit = 0, amb = 0, left = 0;
+      CB.items.slice().forEach(it => {
+        if (cbPlaced(it)) return;
+        left++;
+        const c = cbCandidates(it.sig, true);
+        if (!c.length) return;
+        if (c.length === 1 || (c[0].sc >= 0.55 && (c[0].sc - c[1].sc) >= 0.06)) {
+          if (cbReplace(it, c[0].el)) hit++;
+        } else amb++;
+      });
+      if (hit) toast('⚡ AUTO-PASTE: ' + hit + ' replaced');
+      if (!hit && amb && !_cbAmbSaid) { _cbAmbSaid = true; toast('⇄ ' + amb + ' ambiguous — pick in the panel'); }
+      if (!left) return;
+      if (++_cbArmTries < 14) _cbArmTimer = setTimeout(step, 800);
+    };
+    _cbArmTimer = setTimeout(step, 350);
+  };
+
+  const cbOnNav = () => {
+    const u = location.href;
+    if (u === _cbUrl) return;
+    _cbUrl = u; _cbAmbSaid = false;
+    cbClosePicker();
+    cbRestoreAll();          /* leftovers must not follow us to the next route */
+    cbLoad();            /* another tab may have copied something */
+    cbRenderList();
+    cbArm();
+  };
+
+  const _cbNavH = () => setTimeout(cbOnNav, 0);
+  /* another tab on the same origin copied / cleared something */
+  const _cbStoreH = (e) => {
+    if (!e || e.key !== CB_KEY) return;
+    cbLoad(); cbRenderList(); cbArm();
+  };
+
+  const cbTick = () => {
+    cbOnNav();
+    try { if (!document.getElementById('__om_root__')) createGUI(); } catch(e){}
+  };
+
+  const cbWatchNav = () => {
+    try {
+      ['pushState', 'replaceState'].forEach(k => {
+        const orig = history[k];
+        if (!orig || orig.__om) return;
+        _cbHist[k] = orig;
+        const f = function(){ const r = orig.apply(this, arguments); setTimeout(cbOnNav, 0); return r; };
+        f.__om = true;
+        history[k] = f;
+      });
+    } catch(e){}
+    window.addEventListener('popstate', _cbNavH, true);
+    window.addEventListener('hashchange', _cbNavH, true);
+    window.addEventListener('storage', _cbStoreH);
+    if (_cbNavTimer) clearInterval(_cbNavTimer);
+    _cbNavTimer = setInterval(cbTick, 600);   /* routers that bypass history + panel watchdog */
+  };
+
+  /* while locked, quietly re-read the clipboard: once this origin has the
+     clipboard permission the sidebar name is picked up with no interaction */
+  let _cbGateTimer = null;
+  const cbGateWatch = () => {
+    if (_cbGateTimer) { clearInterval(_cbGateTimer); _cbGateTimer = null; }
+    if (CB.unlocked) return;
+    _cbGateTimer = setInterval(() => {
+      if (CB.unlocked) { clearInterval(_cbGateTimer); _cbGateTimer = null; return; }
+      try { cbTryClipUnlock(false); } catch(e){}
+    }, 4000);
+  };
+
+  const cbInit = () => {
+    cbGateLoad();
+    cbRenderGate();
+    if (!CB.unlocked) { try { cbTryClipUnlock(false); } catch(e){} cbGateWatch(); }
+    cbWatchNav();
+    cbArm();
+  };
+
+  const cbTeardown = () => {
+    CB.copyMode = false;
+    cbClosePicker();
+    cbArmStop();
+    if (_cbGateTimer) { clearInterval(_cbGateTimer); _cbGateTimer = null; }
+    if (_cbNavTimer) { clearInterval(_cbNavTimer); _cbNavTimer = null; }
+    try { window.removeEventListener('popstate', _cbNavH, true); } catch(e){}
+    try { window.removeEventListener('hashchange', _cbNavH, true); } catch(e){}
+    try { window.removeEventListener('storage', _cbStoreH); } catch(e){}
+    try { if (_cbHist.pushState) history.pushState = _cbHist.pushState; } catch(e){}
+    try { if (_cbHist.replaceState) history.replaceState = _cbHist.replaceState; } catch(e){}
+    for (const r of CB.pasted) { r.dead = true; if (r.obs) { try { r.obs.disconnect(); } catch(e){} } }
+    CB.pasted.length = 0;
+    if (CB.box)     { CB.box.remove();     CB.box = null; }
+    if (CB.pickBox) { CB.pickBox.remove(); CB.pickBox = null; }
+    if (CB.picker)  { CB.picker.remove();  CB.picker = null; }
+    const h = document.getElementById('__om_cbhint__'); if (h) h.remove();
+    const pb = document.getElementById('__om_cbpaste__'); if (pb) pb.remove();
+    if (_cbFrame) { try { _cbFrame.remove(); } catch(e){} _cbFrame = null; }
+    _cbDef.clear();
+  };
+
+  cbLoad(); cbCfgLoad();
+
 
   /* ════════════════════════════════════════════
      GUI BUILDER
@@ -656,8 +1791,11 @@ return;
 
     body.appendChild(mkDiv());
 
+    /* ELEMENT BUFFER section is inserted here, but only once the check passes */
     const rb=document.createElement('button'); rb.className='om-rbt'; rb.textContent='↩ RESET ALL CHANGES'; rb.onclick=resetAll;
     body.appendChild(rb);
+    _cbHost = body; _cbAnchor = rb;
+    cbRenderGate();
 
     const ft=document.createElement('div'); ft.className='om-foot';
     ft.innerHTML='Ctrl+Alt+⌫ = reset all &nbsp;•&nbsp; F3 = search';
@@ -683,7 +1821,19 @@ return;
   ════════════════════════════════════════════ */
   const onKD=(e)=>{
     if(e.key==='F3'){e.preventDefault();e.stopPropagation();toggleSearch();return;}
+    if(CB.copyMode){
+      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();cbSetCopyMode(false);return;}
+      if(e.key==='ArrowUp'||e.key==='ArrowDown'){
+        e.preventDefault();e.stopPropagation();
+        CB.depth=Math.max(0,CB.depth+(e.key==='ArrowUp'?1:-1));
+        cbHoverAt(S.mx,S.my);return;
+      }
+    }
+    if(e.key==='Escape'&&CB.picker&&CB.picker.style.display!=='none'){
+      e.preventDefault();e.stopPropagation();cbClosePicker();return;
+    }
     if(e.ctrlKey&&e.altKey&&e.key==='Backspace'){e.preventDefault();e.stopPropagation();resetAll();return;}
+    if(e.ctrlKey&&e.altKey&&(e.key==='k'||e.key==='K')){e.preventDefault();e.stopPropagation();cbTryClipUnlock(true);return;}
     if(e.key==='Control'&&S.ctrlEditor){S.ctrlDown=true;ensureHiBox();}
     if(e.key==='Alt'&&!AS.down&&S.altRemover){
       AS.down=true;ensureABox();
@@ -698,10 +1848,20 @@ return;
   };
   const onMM=(e)=>{
     S.mx=e.clientX;S.my=e.clientY;
+    if(CB.copyMode){cbHoverAt(e.clientX,e.clientY);return;}
     if(S.ctrlEditor&&S.ctrlDown&&!S.editor){ensureHiBox();placeBox(S.hiBox,pickTarget(document.elementFromPoint(e.clientX,e.clientY))||document.elementFromPoint(e.clientX,e.clientY));}
     if(S.altRemover&&AS.down){const tg=document.elementFromPoint(e.clientX,e.clientY)?.closest(ALT_SEL);AS.hovered=tg||null;if(tg)placeBox(AS.hiBox,tg);else hideABox();}
   };
   const onMD=(e)=>{
+    if(CB.copyMode){
+      let own=false; try{ own=!!(e.target&&e.target.closest&&e.target.closest('#__om_root__,#__om_cbpick__')); }catch(err){}
+      if(own)return;
+      e.preventDefault();e.stopPropagation();
+      const el=CB.hover||cbPickAt(document.elementFromPoint(e.clientX,e.clientY));
+      if(el){ cbSetCopyMode(false,true); cbCopy(el); }
+      else toast('✖ NOTHING UNDER CURSOR');
+      return;
+    }
     if(S.altRemover&&AS.down&&AS.hovered){
       e.preventDefault();e.stopPropagation();
       const el=AS.hovered;if(!AS.originals.has(el))AS.originals.set(el,el.innerHTML);
@@ -719,10 +1879,18 @@ return;
     makeEditor(e.clientX+14,e.clientY+14,S.editOriginal);
   };
 
+  const onCLK=(e)=>{
+    if(!CB.copyMode)return;
+    let own=false; try{ own=!!(e.target&&e.target.closest&&e.target.closest('#__om_root__,#__om_cbpick__')); }catch(err){}
+    if(own)return;
+    e.preventDefault();e.stopPropagation();
+  };
+
   window.addEventListener('keydown',onKD,true);
   window.addEventListener('keyup',onKU,true);
   window.addEventListener('mousemove',onMM,true);
   window.addEventListener('mousedown',onMD,true);
+  window.addEventListener('click',onCLK,true);
 
   /* ════════════════════════════════════════════
      UNINSTALL
@@ -732,7 +1900,8 @@ return;
     try{window.removeEventListener('keyup',onKU,true);}catch(e){}
     try{window.removeEventListener('mousemove',onMM,true);}catch(e){}
     try{window.removeEventListener('mousedown',onMD,true);}catch(e){}
-    cancelEdit();stopSPoll();stopSEmu();removePhantom();stopHide();removeSPanel();
+    try{window.removeEventListener('click',onCLK,true);}catch(e){}
+    cancelEdit();stopSPoll();stopSEmu();removePhantom();stopHide();removeSPanel();cbTeardown();
     if(S.hiBox){S.hiBox.remove();S.hiBox=null;}
     if(AS.hiBox){AS.hiBox.remove();AS.hiBox=null;}
     const r=document.getElementById('__om_root__');if(r)r.remove();
@@ -740,8 +1909,12 @@ return;
     window.__omTools=null;return{ok:true};
   };
 
-  window.__omTools={version:VERSION,uninstall,_togglePanel:togglePanel};
+  window.__omTools={version:VERSION,uninstall,_togglePanel:togglePanel,
+    _copyMode:cbSetCopyMode,_pasteAll:cbPasteAll,_buffer:()=>CB.items,_restore:cbRestoreAll,
+    _arm:cbArm,_onNav:cbOnNav,_toClip:cbToClipboard,_fromClip:cbFromClipboard,_adopt:cbAdopt,
+    _unlock:cbTryClipUnlock,_locked:()=>!CB.unlocked};
   createGUI();
-  toast('◈ OM TOOLS v25 LOADED');
+  cbInit();
+  toast('◈ OM TOOLS v'+VERSION+' LOADED');
   return{ok:true,version:VERSION};
 })();
