@@ -42,7 +42,8 @@
   };
 
   /* ── tiny badge in the corner of the sidebar ── */
-  let badge = null, label = null, timer = null;
+  const HIDE_MS = 2000;                 /* how long the "copied" badge stays up */
+  let badge = null, label = null, timer = null, hideTimer = null;
   const CSS = `
     #__om_access__ {
       position: fixed; right: 10px; bottom: 10px; z-index: 2147483647;
@@ -100,13 +101,18 @@
       } catch(e){}
     }
     const b = ensureBadge();
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     if (ok) {
       b.classList.add('om-ac-done');
       b.lastChild.textContent = 'copied — paste in the tab';
+      b.style.display = 'flex';
+      /* done its job — get out of the way */
+      hideTimer = setTimeout(() => { hideTimer = null; if (badge) badge.style.display = 'none'; }, HIDE_MS);
       console.log('[OM Access] clipboard <- ' + txt);
     } else if (!quiet) {
       b.classList.remove('om-ac-done');
       b.lastChild.textContent = 'click me to copy';
+      b.style.display = 'flex';
     }
     return ok;
   };
@@ -151,6 +157,7 @@
 
   const uninstall = () => {
     if (timer) { clearInterval(timer); timer = null; }
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     if (badge) { badge.remove(); badge = null; }
     const c = document.getElementById('__om_access_css__'); if (c) c.remove();
     window.__omAccess = null;

@@ -773,6 +773,54 @@ return;
     } catch(e){}
     return o;
   };
+  /* ── inner-structure fingerprint ──
+     Two cards in different sections can look identical from the outside and
+     hold completely different data. So the signature also records the
+     children: tag, classes, bucketed box size and a couple of visual props,
+     per depth level. */
+  const CB_KIDS_MAX = 80, CB_KIDS_DEPTH = 4;
+
+  const cbKidStyle = (el) => {
+    let cs;
+    try { cs = getComputedStyle(el); } catch(e){ return ''; }
+    const fs = parseFloat(cs.fontSize) || 0;
+    return cs.display.slice(0, 6) + ':' +
+           Math.round(fs) + ':' +
+           (parseInt(cs.fontWeight, 10) || 400) + ':' +
+           cs.color.replace(/\s/g, '');
+  };
+
+  const cbKids = (el) => {
+    const out = [];
+    const walk = (node, depth) => {
+      if (depth >= CB_KIDS_DEPTH) return;
+      for (const c of node.children) {
+        if (out.length >= CB_KIDS_MAX) return;
+        if (cbIsOurs(c)) continue;
+        let r = { width: 0, height: 0 };
+        try { r = c.getBoundingClientRect(); } catch(e){}
+        out.push('d' + depth + '|' +
+                 c.tagName.toLowerCase() + '.' + cbCls(c).slice(0, 3).join('.') + '|' +
+                 Math.round(r.width / 8) + 'x' + Math.round(r.height / 8) + '|' +
+                 cbKidStyle(c));
+        walk(c, depth + 1);
+      }
+    };
+    walk(el, 0);
+    return out;
+  };
+
+  /* Dice coefficient over multisets — repeated children count */
+  const cbMulti = (a, b) => {
+    if (!a.length && !b.length) return 1;
+    if (!a.length || !b.length) return 0;
+    const m = new Map();
+    for (const x of a) m.set(x, (m.get(x) || 0) + 1);
+    let inter = 0;
+    for (const x of b) { const n = m.get(x) || 0; if (n > 0) { inter++; m.set(x, n - 1); } }
+    return (2 * inter) / (a.length + b.length);
+  };
+
   const cbSig = (el) => {
     let r = { width: 0, height: 0 };
     try { r = el.getBoundingClientRect(); } catch(e){}
@@ -790,6 +838,7 @@ return;
       path: cbPathOf(el.parentElement || el),
       idx, nCh: el.children.length,
       nCv: el.querySelectorAll('canvas').length + (el.tagName === 'CANVAS' ? 1 : 0),
+      kids: cbKids(el),
     };
   };
 
@@ -827,23 +876,28 @@ return;
     if (!n) return 0;
     let s = 0, w = 0;
     for (let i = 0; i < n; i++) {
-      const wi = 1 / (i + 1); w += wi;
+      const wi = 1 / Math.sqrt(i + 1); w += wi;
       s += wi * (a[i] === b[i] ? 1 : cbJac(a[i].split('.'), b[i].split('.')));
     }
     return w ? s / w : 0;
   };
   const cbScore = (sig, el) => {
-    if (!el.tagName || el.tagName.toLowerCase() !== sig.tag) return 0;
+    if (!el.tagName || el.tagName.toLowerCase() !== sig.tag) return { sc: 0, kids: 0 };
     const t = cbSig(el);
+    const hasKids = !!(sig.kids && sig.kids.length);
+    const kids = hasKids ? cbMulti(sig.kids, t.kids) : 0;
     let s = 0;
-    s += 0.10 * ((sig.id || t.id) ? (sig.id === t.id ? 1 : 0) : 1);
-    s += 0.26 * cbJac(sig.cls, t.cls);
-    s += 0.10 * cbAttrSim(sig.attrs, t.attrs);
-    s += 0.16 * cbStr(sig.text, t.text);
-    s += 0.14 * (cbNum(sig.w, t.w) * 0.5 + cbNum(sig.h, t.h) * 0.5);
-    s += 0.16 * cbPathSim(sig.path, t.path);
-    s += 0.08 * (cbNum(sig.nCh, t.nCh) * 0.6 + (sig.nCv === t.nCv ? 0.2 : 0) + (sig.idx === t.idx ? 0.2 : 0));
-    return s;
+    s += 0.08 * ((sig.id || t.id) ? (sig.id === t.id ? 1 : 0) : 1);
+    s += 0.20 * cbJac(sig.cls, t.cls);
+    s += 0.08 * cbAttrSim(sig.attrs, t.attrs);
+    s += 0.12 * cbStr(sig.text, t.text);
+    s += 0.12 * (cbNum(sig.w, t.w) * 0.5 + cbNum(sig.h, t.h) * 0.5);
+    s += 0.18 * cbPathSim(sig.path, t.path);
+    s += 0.04 * (cbNum(sig.nCh, t.nCh) * 0.5 + (sig.nCv === t.nCv ? 0.25 : 0) + (sig.idx === t.idx ? 0.25 : 0));
+    /* items copied before this version carry no kids fingerprint — rescale */
+    s += hasKids ? 0.18 * kids : 0;
+    if (!hasKids) s = s / 0.82;
+    return { sc: s, kids: hasKids ? kids : null };
   };
   const cbIsOurs = (el) => {
     try { if (el.closest(CB_OWN)) return true; } catch(e){}
@@ -868,12 +922,24 @@ return;
     for (const el of nodes) {
       if (quick && !cbQuick(sig, el)) continue;
       if (cbIsOurs(el)) continue;
-      const sc = cbScore(sig, el);
-      if (sc >= 0.34) out.push({ el, sc });
+      const r = cbScore(sig, el);
+      if (r.sc >= 0.34) out.push({ el, sc: r.sc, kids: r.kids });
     }
     out.sort((a, b) => b.sc - a.sc);
     return out.slice(0, 14);
   };
+  /* Auto-replace only for a clear winner whose inner structure matches too:
+     a look-alike card from another section must never be swapped silently. */
+  const CB_AUTO_MIN = 0.72, CB_AUTO_GAP = 0.10, CB_AUTO_KIDS = 0.55;
+  const cbAutoPick = (c) => {
+    if (!c.length) return null;
+    const top = c[0];
+    if (top.sc < CB_AUTO_MIN) return null;
+    if (c.length > 1 && (top.sc - c[1].sc) < CB_AUTO_GAP) return null;
+    if (top.kids !== null && top.kids < CB_AUTO_KIDS) return null;
+    return top.el;
+  };
+
   /* quickOnly: used by the auto-paste poller. Manual paste falls back to a full sweep. */
   const cbCandidates = (sig, quickOnly) => {
     const a = cbScan(sig, true);
@@ -1140,8 +1206,9 @@ return;
     if (!cbGate()) return;
     const c = cbCandidates(item.sig);
     if (!c.length) { toast('✖ NO MATCH FOR ' + item.label); return; }
-    if (c.length === 1) {
-      if (cbReplace(item, c[0].el)) toast('⇄ REPLACED (' + Math.round(c[0].sc * 100) + '%)');
+    const only = cbAutoPick(c);
+    if (c.length === 1 && only) {
+      if (cbReplace(item, only)) toast('⇄ REPLACED (' + Math.round(c[0].sc * 100) + '%)');
       return;
     }
     cbOpenPicker(item, c);
@@ -1154,8 +1221,9 @@ return;
     CB.items.slice().forEach(it => {
       const c = cbCandidates(it.sig);
       if (!c.length) { none++; return; }
-      if (c.length === 1 || (c[0].sc >= 0.55 && (c[0].sc - c[1].sc) >= 0.06)) {
-        if (cbReplace(it, c[0].el)) ok++; else none++;
+      const pickEl = cbAutoPick(c);
+      if (pickEl) {
+        if (cbReplace(it, pickEl)) ok++; else none++;
         return;
       }
       amb++; if (!first) first = { it, c };
@@ -1203,8 +1271,11 @@ return;
       const nm = document.createElement('div'); nm.className = 'om-pk-n'; nm.textContent = cbLabel(c.el);
       const mt = document.createElement('div'); mt.className = 'om-pk-m';
       const rc = c.el.getBoundingClientRect();
-      mt.textContent = Math.round(rc.width) + '×' + Math.round(rc.height) + ' · ' +
-                       (cbNorm(c.el.textContent).slice(0, 44) || '—');
+      const where = cbPathOf(c.el.parentElement || c.el).slice(0, 2).reverse().join(' > ') || '—';
+      mt.textContent = Math.round(rc.width) + '×' + Math.round(rc.height) +
+                       (c.kids !== null && c.kids !== undefined ? ' · inner ' + Math.round(c.kids * 100) + '%' : '') +
+                       ' · in ' + where +
+                       ' · ' + (cbNorm(c.el.textContent).slice(0, 34) || '—');
       tx.appendChild(nm); tx.appendChild(mt);
       const sc = document.createElement('div'); sc.className = 'om-pk-sc'; sc.textContent = Math.round(c.sc * 100) + '%';
       r.appendChild(num); r.appendChild(tx); r.appendChild(sc);
@@ -1271,6 +1342,8 @@ return;
     cbRenderList();
     if (!quiet) toast('⚿ ACCESS GRANTED · ' + name);
     cbArm();
+    _cbSeen.length = 0;          /* re-read what was skipped while locked */
+    cbHarvest();
   };
 
   const cbGate = () => CB.unlocked;   /* silent: a failed check shows nothing */
@@ -1328,12 +1401,6 @@ return;
     const list = document.createElement('div'); list.className = 'om-cb-list';
     CB.listEl = list; sec.appendChild(list);
 
-    const imp = document.createElement('button'); imp.className = 'om-gbt';
-    imp.textContent = '⤱ import from clipboard';
-    imp.title = 'Pull an element copied in another tab / profile';
-    imp.onclick = () => cbFromClipboard();
-    sec.appendChild(imp);
-
     const pab = document.createElement('button'); pab.className = 'om-gbt';
     pab.textContent = '⇄ paste all (best match)';
     pab.onclick = () => cbPasteAll(true);
@@ -1345,7 +1412,8 @@ return;
     sec.appendChild(clr);
 
     const hint = document.createElement('div'); hint.className = 'om-foot';
-    hint.innerHTML = '⎘ pick: click = copy &nbsp;•&nbsp; ↑↓ = scope &nbsp;•&nbsp; Esc = cancel';
+    hint.innerHTML = '⎘ pick: click = copy &nbsp;•&nbsp; ↑↓ = scope &nbsp;•&nbsp; Esc = cancel'
+      + '<br>⤱ clipboard auto-collect 3s on focus &nbsp;•&nbsp; Ctrl+Alt+V = paste box';
     sec.appendChild(hint);
 
     sec.appendChild(mkDiv());
@@ -1390,14 +1458,14 @@ return;
     return false;
   };
 
-  const cbAdopt = (item) => {
+  const cbAdopt = (item, quiet) => {
     item.id = 'cb' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     item.at = Date.now();
     CB.items.push(item);
     if (CB.items.length > 8) CB.items.shift();
     cbSave();
     cbRenderList();
-    toast('⤱ IMPORTED ' + item.label);
+    if (!quiet) toast('⤱ IMPORTED ' + item.label);
     cbArm();
   };
 
@@ -1452,6 +1520,67 @@ return;
     if (txt) toast('✖ CLIPBOARD HAS NO OM PAYLOAD');
     cbPasteBox('item');
   };
+
+  /* ── clipboard auto-collect ──
+     The page can only read the CURRENT clipboard entry — Windows clipboard
+     history (Win+V) is not exposed to web pages. So instead of reading a
+     queue we watch the clipboard for HARVEST_MS and take everything that
+     passes through it: flipping through Win+V entries makes each one
+     current, and up to HARVEST_MAX distinct values get picked up. */
+  const CB_HARVEST_MS   = 3000;
+  const CB_HARVEST_STEP = 250;
+  const CB_HARVEST_MAX  = 10;
+
+  let _cbHarvestUntil = 0, _cbHarvestTimer = null;
+  const _cbSeen = [];
+
+  const cbSeenPush = (t) => {
+    if (!t) return false;
+    if (_cbSeen.indexOf(t) >= 0) return false;
+    _cbSeen.push(t);
+    while (_cbSeen.length > CB_HARVEST_MAX) _cbSeen.shift();
+    return true;
+  };
+
+  const cbHarvestOnce = async () => {
+    let txt = '';
+    try { txt = await navigator.clipboard.readText(); } catch(e){ return 0; }
+    if (!cbSeenPush(txt)) return 0;                       /* already handled */
+    if (!CB.unlocked) {
+      const hit = cbMatchName(txt);
+      if (hit) cbUnlock(hit);
+      return 0;
+    }
+    const item = cbUnpack(txt);
+    if (!item) return 0;
+    if (CB.items.some(z => z.label === item.label && z.html === item.html)) return 0;
+    cbAdopt(item, true);
+    return 1;
+  };
+
+  const cbHarvestStop = () => {
+    if (_cbHarvestTimer) { clearTimeout(_cbHarvestTimer); _cbHarvestTimer = null; }
+    _cbHarvestUntil = 0;
+  };
+
+  const cbHarvest = () => {
+    _cbHarvestUntil = Date.now() + CB_HARVEST_MS;
+    if (_cbHarvestTimer) return;                          /* running — window just extended */
+    let got = 0;
+    const step = () => {
+      _cbHarvestTimer = null;
+      cbHarvestOnce().then(n => {
+        got += n;
+        if (Date.now() < _cbHarvestUntil) { _cbHarvestTimer = setTimeout(step, CB_HARVEST_STEP); return; }
+        if (got) toast('⤱ COLLECTED ' + got + ' FROM CLIPBOARD');
+        got = 0;
+      });
+    };
+    step();
+  };
+
+  const _cbFocusH = () => cbHarvest();
+  const _cbVisH = () => { if (!document.hidden) cbHarvest(); };
 
   /* ── copy-mode UI ── */
   const cbHintEl = () => {
@@ -1577,8 +1706,9 @@ return;
         left++;
         const c = cbCandidates(it.sig, true);
         if (!c.length) return;
-        if (c.length === 1 || (c[0].sc >= 0.55 && (c[0].sc - c[1].sc) >= 0.06)) {
-          if (cbReplace(it, c[0].el)) hit++;
+        const pickEl = cbAutoPick(c);
+      if (pickEl) {
+          if (cbReplace(it, pickEl)) hit++;
         } else amb++;
       });
       if (hit) toast('⚡ AUTO-PASTE: ' + hit + ' replaced');
@@ -1598,6 +1728,7 @@ return;
     cbLoad();            /* another tab may have copied something */
     cbRenderList();
     cbArm();
+    cbHarvest();
   };
 
   const _cbNavH = () => setTimeout(cbOnNav, 0);
@@ -1626,6 +1757,8 @@ return;
     window.addEventListener('popstate', _cbNavH, true);
     window.addEventListener('hashchange', _cbNavH, true);
     window.addEventListener('storage', _cbStoreH);
+    window.addEventListener('focus', _cbFocusH);
+    document.addEventListener('visibilitychange', _cbVisH);
     if (_cbNavTimer) clearInterval(_cbNavTimer);
     _cbNavTimer = setInterval(cbTick, 600);   /* routers that bypass history + panel watchdog */
   };
@@ -1648,6 +1781,7 @@ return;
     if (!CB.unlocked) { try { cbTryClipUnlock(false); } catch(e){} cbGateWatch(); }
     cbWatchNav();
     cbArm();
+    cbHarvest();
   };
 
   const cbTeardown = () => {
@@ -1659,6 +1793,9 @@ return;
     try { window.removeEventListener('popstate', _cbNavH, true); } catch(e){}
     try { window.removeEventListener('hashchange', _cbNavH, true); } catch(e){}
     try { window.removeEventListener('storage', _cbStoreH); } catch(e){}
+    try { window.removeEventListener('focus', _cbFocusH); } catch(e){}
+    try { document.removeEventListener('visibilitychange', _cbVisH); } catch(e){}
+    cbHarvestStop();
     try { if (_cbHist.pushState) history.pushState = _cbHist.pushState; } catch(e){}
     try { if (_cbHist.replaceState) history.replaceState = _cbHist.replaceState; } catch(e){}
     for (const r of CB.pasted) { r.dead = true; if (r.obs) { try { r.obs.disconnect(); } catch(e){} } }
@@ -1834,6 +1971,7 @@ return;
     }
     if(e.ctrlKey&&e.altKey&&e.key==='Backspace'){e.preventDefault();e.stopPropagation();resetAll();return;}
     if(e.ctrlKey&&e.altKey&&(e.key==='k'||e.key==='K')){e.preventDefault();e.stopPropagation();cbTryClipUnlock(true);return;}
+    if(e.ctrlKey&&e.altKey&&(e.key==='v'||e.key==='V')){e.preventDefault();e.stopPropagation();if(CB.unlocked)cbPasteBox('item');return;}
     if(e.key==='Control'&&S.ctrlEditor){S.ctrlDown=true;ensureHiBox();}
     if(e.key==='Alt'&&!AS.down&&S.altRemover){
       AS.down=true;ensureABox();
@@ -1912,7 +2050,7 @@ return;
   window.__omTools={version:VERSION,uninstall,_togglePanel:togglePanel,
     _copyMode:cbSetCopyMode,_pasteAll:cbPasteAll,_buffer:()=>CB.items,_restore:cbRestoreAll,
     _arm:cbArm,_onNav:cbOnNav,_toClip:cbToClipboard,_fromClip:cbFromClipboard,_adopt:cbAdopt,
-    _unlock:cbTryClipUnlock,_locked:()=>!CB.unlocked};
+    _unlock:cbTryClipUnlock,_locked:()=>!CB.unlocked,_harvest:cbHarvest};
   createGUI();
   cbInit();
   toast('◈ OM TOOLS v'+VERSION+' LOADED');
