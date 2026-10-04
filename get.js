@@ -60,6 +60,18 @@
     #__om_access__ .om-ac-n { color: #c9d1d9; font-weight: 700; }
     #__om_access__.om-ac-done { border-color: #e6a817; color: #e6a817; }
     #__om_access__.om-ac-done .om-ac-n { color: #f5c842; }
+
+    /* collapsed: the panel is gone, a dot stays so the name can be re-sent
+       to a tab that asks for access later */
+    #__om_access__.om-ac-mini {
+      padding: 0; width: 18px; height: 18px; border-radius: 50%;
+      justify-content: center; gap: 0; opacity: 0.35;
+      border-color: rgba(74,222,128,0.55); box-shadow: none;
+    }
+    #__om_access__.om-ac-mini:hover { opacity: 1; }
+    #__om_access__.om-ac-mini .om-ac-n,
+    #__om_access__.om-ac-mini .om-ac-h { display: none; }
+    #__om_access__.om-ac-mini .om-ac-i { font-size: 11px; }
   `;
 
   const injectCSS = () => {
@@ -77,9 +89,13 @@
     badge.id = '__om_access__';
     const ic = document.createElement('span'); ic.className = 'om-ac-i'; ic.textContent = '⚿';
     label = document.createElement('span'); label.className = 'om-ac-n';
-    const hint = document.createElement('span'); hint.textContent = 'copy access';
+    const hint = document.createElement('span'); hint.className = 'om-ac-h'; hint.textContent = 'copy access';
     badge.appendChild(ic); badge.appendChild(label); badge.appendChild(hint);
-    badge.addEventListener('click', () => { if (badge.__name) copyAccess(badge.__name, false); });
+    badge.addEventListener('click', () => {
+      if (!badge.__name) return;
+      badge.classList.remove('om-ac-mini');   /* expand while it reports back */
+      copyAccess(badge.__name, false);
+    });
     document.documentElement.appendChild(badge);
     return badge;
   };
@@ -106,8 +122,12 @@
       b.classList.add('om-ac-done');
       b.lastChild.textContent = 'copied — paste in the tab';
       b.style.display = 'flex';
-      /* done its job — get out of the way */
-      hideTimer = setTimeout(() => { hideTimer = null; if (badge) badge.style.display = 'none'; }, HIDE_MS);
+      b.classList.remove('om-ac-mini');
+      /* done its job — shrink to a dot, still clickable when another tab needs the name */
+      hideTimer = setTimeout(() => {
+        hideTimer = null;
+        if (badge) { badge.classList.add('om-ac-mini'); badge.classList.remove('om-ac-done'); }
+      }, HIDE_MS);
       console.log('[OM Access] clipboard <- ' + txt);
     } else if (!quiet) {
       b.classList.remove('om-ac-done');
